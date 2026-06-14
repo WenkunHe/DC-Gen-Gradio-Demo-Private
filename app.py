@@ -105,16 +105,18 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
 
 def load_pipeline_anyflow(subdir: str):
     local_dir = _download_subdir(subdir)
-    # Copy transformer model into far/models so the import resolves correctly
+    # Patch the cloned AnyFlow with the checkpoint's custom_code/ versions.
+    # The main AnyFlow branch has an older scheduler that wraps output in
+    # FlowMapEulerDiscreteSchedulerOutput; custom_code/ returns a plain tensor.
     import shutil
-    dst = anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py'
-    if not dst.exists():
-        shutil.copy(local_dir / 'transformer_dcgen_flux_model.py', dst)
-    # Import custom classes — insert local_dir first, then repo_root at 0
-    # so that the repo_root patched pipeline takes priority over the checkpoint copy.
-    sys.path.insert(0, str(local_dir))
-    sys.path.insert(0, str(repo_root))
-    from pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
+    shutil.copy(local_dir / 'transformer_dcgen_flux_model.py',
+                anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py')
+    shutil.copy(local_dir / 'custom_code' / 'scheduling_flowmap_euler_discrete.py',
+                anyflow_src / 'far' / 'schedulers' / 'scheduling_flowmap_euler_discrete.py')
+    shutil.copy(local_dir / 'custom_code' / 'pipeline_dcgen_flux_anyflow.py',
+                anyflow_src / 'far' / 'pipelines' / 'pipeline_dcgen_flux_anyflow.py')
+
+    from far.pipelines.pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
     from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
     from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
     from diffusers import AutoencoderDC
@@ -152,7 +154,7 @@ def load_pipeline_anyflow(subdir: str):
     from safetensors.torch import load_file as _load_sf
     _t_dir = local_dir / 'transformer'
     transformer = DCGenFluxFlowMapModel.from_config(DCGenFluxFlowMapModel.load_config(str(_t_dir)))
-    transformer.setup_flowmap_model()
+    transformer.setup_flowmap_model(gate_value=0.25, deltatime_type='r')
     _index_path = _t_dir / 'diffusion_pytorch_model.safetensors.index.json'
     if _index_path.exists():
         with open(_index_path) as _f:
@@ -169,9 +171,13 @@ def load_pipeline_anyflow(subdir: str):
         print(f'[transformer] {len(_missing)} missing keys')
     transformer = transformer.to(dtype)
 
-    scheduler     = FlowMapDiscreteScheduler.from_pretrained(local_dir / 'scheduler')
+    # Instantiate scheduler directly with the correct shift (generate.py uses shift=3.0)
+    scheduler = FlowMapDiscreteScheduler(num_train_timesteps=1000, shift=3.0)
 
-    null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=True)
+    # Keys in the .pth are 'prompt_embeds'/'pooled_prompt_embeds' (not 'null_*')
+    null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=False)
+    _null_pe  = null_embeds.get('prompt_embeds') or null_embeds.get('null_prompt_embeds')
+    _null_ppe = null_embeds.get('pooled_prompt_embeds') or null_embeds.get('null_pooled_prompt_embeds')
 
     pipe = DCGenFluxAnyFlowPipeline(
         vae=vae,
@@ -181,8 +187,8 @@ def load_pipeline_anyflow(subdir: str):
         text_encoder_2=text_encoder_2,
         transformer=transformer,
         scheduler=scheduler,
-        null_prompt_embeds=null_embeds.get('null_prompt_embeds'),
-        null_pooled_prompt_embeds=null_embeds.get('null_pooled_prompt_embeds'),
+        null_prompt_embeds=_null_pe,
+        null_pooled_prompt_embeds=_null_ppe,
     )
     pipe.set_progress_bar_config(disable=True)
     return pipe
