@@ -149,7 +149,7 @@ def load_pipeline_anyflow(subdir: str):
         model_max_length=512,
         eos_token='</s>',
         unk_token='<unk>',
-        pad_token='</s>',
+        pad_token='<pad>',  # id=0, same as T5TokenizerFast.from_pretrained default
     )
     text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
