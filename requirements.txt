@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch
+torchvision
+
+accelerate
+diffusers>=0.35.1
+gradio
+huggingface_hub
+peft
+sentencepiece
+transformers
