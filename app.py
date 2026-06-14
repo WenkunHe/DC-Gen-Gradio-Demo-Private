@@ -4,19 +4,34 @@ from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
+import sys
 import uuid
 
 import gradio as gr
 import torch
 from huggingface_hub import snapshot_download
 
-from pipeline_dcgen_flux import DCGen_FluxPipeline
+repo_root = pathlib.Path(__file__).resolve().parent
+output_dir = repo_root / 'results'
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Clone AnyFlow main repo for the `far/` package used by the AnyFlow pipeline
+anyflow_src = repo_root / 'AnyFlow'
+if not anyflow_src.exists():
+    subprocess.run(
+        ['git', 'clone', '--depth', '1', 'https://github.com/NVlabs/AnyFlow.git', str(anyflow_src)],
+        check=True,
+    )
+sys.path.insert(0, str(anyflow_src))
+
+from pipeline_dcgen_flux import DCGen_FluxPipeline  # noqa: E402
 
 INTRODUCTION = """
 # DC-Gen: High-Resolution Image Generation with DC-AE
 
 DC-Gen is a high-resolution text-to-image generation framework built on FLUX, using Deep Compression
-AutoEncoders (DC-AE) to enable native 1K and 4K image generation.
+AutoEncoders (DC-AE) to enable native 1K and 4K image synthesis on top of FLUX.
 
 - **1K model**: uses DC-AE-f32 latent space, supports flexible aspect ratios up to 1024×1024 equivalent
 - **4K model**: uses DC-AE-f64 latent space, generates 4096×4096 images natively
@@ -24,17 +39,19 @@ AutoEncoders (DC-AE) to enable native 1K and 4K image generation.
 ---
 > Run locally:
 ```bash
-git clone https://github.com/NVlabs/DC-Gen.git && cd DC-Gen
+git clone git@github.com:WenkunHe/DC-Gen-Gradio-Demo-Private.git
+cd DC-Gen-Gradio-Demo-Private
 conda create -n dcgen python=3.10 && conda activate dcgen
 pip install -r requirements.txt
-python app.py
+HF_TOKEN=<your_hf_token> python app.py
 ```
 ---
 """
 
-HUB_REPO = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
-HUB_REPO_1K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
-HUB_REPO_4K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
+HUB_REPO          = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
+HUB_REPO_1K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
+HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
+HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
@@ -59,12 +76,8 @@ EXAMPLES_4K = [
     "Two figures paddle a canoe in a tranquil lake, surrounded by towering mountains and lush trees, with a waterfall cascading down rocky cliffs in the background. Soft light filters through the clouds, casting reflections on the water's surface.",
 ]
 
-repo_root = pathlib.Path(__file__).resolve().parent
-output_dir = repo_root / 'results'
-output_dir.mkdir(parents=True, exist_ok=True)
 
-
-def load_pipeline(subdir: str) -> DCGen_FluxPipeline:
+def _download_subdir(subdir: str) -> pathlib.Path:
     local_dir = repo_root / 'pretrained_models' / subdir
     if not (local_dir / 'model_index.json').exists():
         token = os.environ.get('HF_TOKEN')
@@ -75,40 +88,59 @@ def load_pipeline(subdir: str) -> DCGen_FluxPipeline:
             allow_patterns=f'{subdir}/*',
             token=token,
         )
-        # snapshot_download places files under local_dir/subdir — flatten one level
         nested = local_dir / subdir
         if nested.exists():
             for item in nested.iterdir():
                 item.rename(local_dir / item.name)
             nested.rmdir()
+    return local_dir
+
+
+def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
+    local_dir = _download_subdir(subdir)
     pipe = DCGen_FluxPipeline.from_pretrained(str(local_dir), torch_dtype=torch.bfloat16)
     pipe.set_progress_bar_config(disable=True)
     return pipe
 
 
+def load_pipeline_anyflow(subdir: str):
+    local_dir = _download_subdir(subdir)
+    # Import the custom pipeline class from the checkpoint directory
+    sys.path.insert(0, str(local_dir))
+    from pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
+    pipe = DCGenFluxAnyFlowPipeline.from_pretrained(str(local_dir), torch_dtype=torch.bfloat16)
+    pipe.set_progress_bar_config(disable=True)
+    return pipe
+
+
+print('Loading 1K-AnyFlow pipeline...')
+pipe_1k_anyflow = load_pipeline_anyflow(HUB_REPO_1K_ANYFLOW)
 print('Loading 1K pipeline...')
-pipe_1k = load_pipeline(HUB_REPO_1K)
+pipe_1k = load_pipeline_standard(HUB_REPO_1K)
 print('Loading 4K pipeline...')
-pipe_4k = load_pipeline(HUB_REPO_4K)
-print('Both pipelines loaded.')
+pipe_4k = load_pipeline_standard(HUB_REPO_4K)
+print('All pipelines loaded.')
 
 
-def generate_1k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int) -> str:
+def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int) -> str:
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
-    pipe_1k.to('cuda')
+    pipe = pipe_1k_anyflow if use_anyflow == 'AnyFlow' else pipe_1k
+    pipe.to('cuda')
     with torch.no_grad():
-        out = pipe_1k(
-            prompt.strip(),
+        kwargs = dict(
             height=h,
             width=w,
             num_inference_steps=num_steps,
             guidance_scale=guidance,
             generator=torch.Generator('cuda').manual_seed(int(seed)),
-            use_flux_2=True,
-        ).images[0]
-    pipe_1k.to('cpu')
+        )
+        if use_anyflow != 'AnyFlow':
+            kwargs['use_flux_2'] = True
+        out = pipe(prompt.strip(), **kwargs).images[0]
+    pipe.to('cpu')
     torch.cuda.empty_cache()
-    path = output_dir / f'1k_{uuid.uuid4().hex[:8]}.jpg'
+    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
+    path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
     return str(path)
 
@@ -141,6 +173,12 @@ with gr.Blocks(title='DC-Gen') as demo:
             with gr.Row():
                 with gr.Column():
                     prompt_1k = gr.Textbox(label='Prompt', lines=4)
+                    model_toggle = gr.Radio(
+                        choices=['AnyFlow', 'Standard'],
+                        value='AnyFlow',
+                        label='Model',
+                        info='AnyFlow: on-policy distilled model (faster, any-step); Standard: base 1K model',
+                    )
                     aspect_1k = gr.Dropdown(
                         list(ASPECT_RATIOS_1K.keys()),
                         value='1:1  (1024×1024)',
@@ -161,7 +199,11 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_1k])
 
-            btn_1k.click(generate_1k, inputs=[prompt_1k, aspect_1k, steps_1k, guidance_1k, seed_1k], outputs=[out_1k])
+            btn_1k.click(
+                generate_1k,
+                inputs=[prompt_1k, model_toggle, aspect_1k, steps_1k, guidance_1k, seed_1k],
+                outputs=[out_1k],
+            )
 
         with gr.Tab('DC-Gen 4K'):
             gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 4K Generation (DC-AE-f64, 4096×4096)')
