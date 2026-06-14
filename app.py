@@ -142,7 +142,26 @@ def load_pipeline_anyflow(subdir: str):
     )
     text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
-    transformer   = DCGenFluxFlowMapModel.from_pretrained(local_dir / 'transformer', torch_dtype=dtype)
+
+    # Load transformer manually: setup_flowmap_model() must replace time_text_embed with
+    # FluxTwoTimestepTextProjEmbeddings BEFORE the state dict is loaded, so that the
+    # checkpoint's delta_embedder weights land on the correct module instead of being
+    # silently dropped by strict=False — which would leave the wrong forward() signature.
+    from safetensors.torch import load_file as _load_sf
+    _t_dir = local_dir / 'transformer'
+    transformer = DCGenFluxFlowMapModel.from_config(DCGenFluxFlowMapModel.load_config(str(_t_dir)))
+    transformer.setup_flowmap_model()
+    _sd_path = _t_dir / 'diffusion_pytorch_model.safetensors'
+    if not _sd_path.exists():
+        _sd_path = _t_dir / 'diffusion_pytorch_model.bin'
+        _state_dict = torch.load(str(_sd_path), map_location='cpu', weights_only=True)
+    else:
+        _state_dict = _load_sf(str(_sd_path))
+    _missing, _unexpected = transformer.load_state_dict(_state_dict, strict=False)
+    if _missing:
+        print(f'[transformer] missing keys: {len(_missing)}')
+    transformer = transformer.to(dtype)
+
     scheduler     = FlowMapDiscreteScheduler.from_pretrained(local_dir / 'scheduler')
 
     null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=True)
