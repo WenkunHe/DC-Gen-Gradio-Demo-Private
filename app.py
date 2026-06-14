@@ -226,6 +226,9 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
     pipe.to('cuda')
+    torch.cuda.synchronize()
+    _t_load = time.perf_counter()
+    print(f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
     with torch.no_grad():
         kwargs = dict(
             height=h, width=w,
@@ -240,10 +243,12 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     _t_gen = time.perf_counter()
     pipe.to('cpu')
     torch.cuda.empty_cache()
+    _t_offload = time.perf_counter()
+    print(f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
     path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
     _t_save = time.perf_counter()
-    print(f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
+    print(f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
     return str(path)
 
 
@@ -251,6 +256,9 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int) -> str:
     print(f'\n[Generate 4K] 4096x4096, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
     pipe_4k.to('cuda')
+    torch.cuda.synchronize()
+    _t_load = time.perf_counter()
+    print(f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
     with torch.no_grad():
         out = pipe_4k(
             prompt.strip(),
@@ -264,10 +272,12 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int) -> str:
     _t_gen = time.perf_counter()
     pipe_4k.to('cpu')
     torch.cuda.empty_cache()
+    _t_offload = time.perf_counter()
+    print(f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
     path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
     _t_save = time.perf_counter()
-    print(f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
+    print(f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
     return str(path)
 
 
