@@ -143,14 +143,29 @@ def load_pipeline_anyflow(subdir: str):
     text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
 
-    # Subclass that calls setup_flowmap_model() during __init__ so from_pretrained
-    # builds the FluxTwoTimestepTextProjEmbeddings architecture before loading weights.
-    class _SetupTransformer(DCGenFluxFlowMapModel):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.setup_flowmap_model()
-
-    transformer = _SetupTransformer.from_pretrained(str(local_dir / 'transformer'), torch_dtype=dtype)
+    # Build model with correct architecture first, then load sharded weights manually.
+    # from_pretrained can't be used because register_to_config drops config attrs when
+    # __init__ is overridden, and setup_flowmap_model() must run before weights load.
+    import json
+    from safetensors.torch import load_file as _load_sf
+    _t_dir = local_dir / 'transformer'
+    transformer = DCGenFluxFlowMapModel.from_config(DCGenFluxFlowMapModel.load_config(str(_t_dir)))
+    transformer.setup_flowmap_model()
+    _index_path = _t_dir / 'diffusion_pytorch_model.safetensors.index.json'
+    if _index_path.exists():
+        with open(_index_path) as _f:
+            _shards = sorted(set(json.load(_f)['weight_map'].values()))
+        _state_dict = {}
+        for _shard in _shards:
+            _state_dict.update(_load_sf(str(_t_dir / _shard)))
+    elif (_t_dir / 'diffusion_pytorch_model.safetensors').exists():
+        _state_dict = _load_sf(str(_t_dir / 'diffusion_pytorch_model.safetensors'))
+    else:
+        _state_dict = torch.load(str(_t_dir / 'diffusion_pytorch_model.bin'), map_location='cpu', weights_only=True)
+    _missing, _unexpected = transformer.load_state_dict(_state_dict, strict=False)
+    if _missing:
+        print(f'[transformer] {len(_missing)} missing keys')
+    transformer = transformer.to(dtype)
 
     scheduler     = FlowMapDiscreteScheduler.from_pretrained(local_dir / 'scheduler')
 
