@@ -116,6 +116,11 @@ def load_pipeline_anyflow(subdir: str):
     shutil.copy(local_dir / 'custom_code' / 'pipeline_dcgen_flux_anyflow.py',
                 anyflow_src / 'far' / 'pipelines' / 'pipeline_dcgen_flux_anyflow.py')
 
+    # Invalidate module cache so the freshly-copied files are picked up
+    for mod in list(sys.modules.keys()):
+        if mod.startswith('far.'):
+            del sys.modules[mod]
+
     from far.pipelines.pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
     from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
     from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
@@ -169,15 +174,23 @@ def load_pipeline_anyflow(subdir: str):
     _missing, _unexpected = transformer.load_state_dict(_state_dict, strict=False)
     if _missing:
         print(f'[transformer] {len(_missing)} missing keys')
-    transformer = transformer.to(dtype)
+    transformer = transformer.to(dtype).eval()
 
     # Instantiate scheduler directly with the correct shift (generate.py uses shift=3.0)
     scheduler = FlowMapDiscreteScheduler(num_train_timesteps=1000, shift=3.0)
 
     # Keys in the .pth are 'prompt_embeds'/'pooled_prompt_embeds' (not 'null_*')
     null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=False)
-    _null_pe  = null_embeds.get('prompt_embeds') or null_embeds.get('null_prompt_embeds')
-    _null_ppe = null_embeds.get('pooled_prompt_embeds') or null_embeds.get('null_pooled_prompt_embeds')
+    _null_pe  = null_embeds.get('prompt_embeds')
+    if _null_pe is None:
+        _null_pe = null_embeds.get('null_prompt_embeds')
+    _null_ppe = null_embeds.get('pooled_prompt_embeds')
+    if _null_ppe is None:
+        _null_ppe = null_embeds.get('null_pooled_prompt_embeds')
+    if _null_pe is not None:
+        _null_pe  = _null_pe.to(dtype)
+    if _null_ppe is not None:
+        _null_ppe = _null_ppe.to(dtype)
 
     pipe = DCGenFluxAnyFlowPipeline(
         vae=vae,
