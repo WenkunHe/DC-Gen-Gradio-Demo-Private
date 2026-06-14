@@ -23,11 +23,11 @@ Interactive demo for **DC-Gen**, a high-resolution text-to-image generation fram
 ## Local Setup
 
 ```bash
-git clone -b dc-gen-gradio-demo https://github.com/NVlabs/DC-Gen.git
-cd DC-Gen
+git clone git@github.com:WenkunHe/DC-Gen-Gradio-Demo-Private.git
+cd DC-Gen-Gradio-Demo-Private
 conda create -n dcgen python=3.10 && conda activate dcgen
 pip install -r requirements.txt
-python app.py
+HF_TOKEN=<your_hf_token> python app.py
 ```
 
-The first run downloads model weights from HuggingFace Hub into `pretrained_models/`.
+The first run downloads model weights from HuggingFace Hub (as a dataset repo) into `pretrained_models/`. A HuggingFace token with access to the `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K` and `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K` datasets is required.
