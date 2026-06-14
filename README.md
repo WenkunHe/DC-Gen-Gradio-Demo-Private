@@ -17,8 +17,8 @@ Interactive demo for **DC-Gen**, a high-resolution text-to-image generation fram
 
 | Tab | Model | VAE | Resolution |
 |-----|-------|-----|------------|
-| DC-Gen 1K | `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K` | DC-AE-f32 | up to 1024×1024, flexible aspect ratios |
-| DC-Gen 4K | `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K` | DC-AE-f64 | 4096×4096 |
+| DC-Gen 1K | `nvidia/DC-Gen-FLUX.1-Krea-Dev` (`DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K/`) | DC-AE-f32 | up to 1024×1024, flexible aspect ratios |
+| DC-Gen 4K | `nvidia/DC-Gen-FLUX.1-Krea-Dev` (`DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K/`) | DC-AE-f64 | 4096×4096 |
 
 ## Local Setup
 

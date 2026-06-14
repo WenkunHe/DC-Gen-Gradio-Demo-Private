@@ -32,8 +32,9 @@ python app.py
 ---
 """
 
-HUB_REPO_1K = 'nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
-HUB_REPO_4K = 'nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
+HUB_REPO = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
+HUB_REPO_1K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
+HUB_REPO_4K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
@@ -63,11 +64,23 @@ output_dir = repo_root / 'results'
 output_dir.mkdir(parents=True, exist_ok=True)
 
 
-def load_pipeline(hub_repo: str) -> DCGen_FluxPipeline:
-    local_dir = repo_root / 'pretrained_models' / hub_repo
+def load_pipeline(subdir: str) -> DCGen_FluxPipeline:
+    local_dir = repo_root / 'pretrained_models' / subdir
     if not (local_dir / 'model_index.json').exists():
         token = os.environ.get('HF_TOKEN')
-        snapshot_download(repo_id=hub_repo, repo_type='dataset', local_dir=str(local_dir), token=token)
+        snapshot_download(
+            repo_id=HUB_REPO,
+            repo_type='model',
+            local_dir=str(local_dir),
+            allow_patterns=f'{subdir}/*',
+            token=token,
+        )
+        # snapshot_download places files under local_dir/subdir — flatten one level
+        nested = local_dir / subdir
+        if nested.exists():
+            for item in nested.iterdir():
+                item.rename(local_dir / item.name)
+            nested.rmdir()
     pipe = DCGen_FluxPipeline.from_pretrained(str(local_dir), torch_dtype=torch.bfloat16)
     pipe.set_progress_bar_config(disable=True)
     return pipe
