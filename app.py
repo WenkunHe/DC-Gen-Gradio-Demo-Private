@@ -219,16 +219,18 @@ pipe_4k = load_pipeline_standard(HUB_REPO_4K)
 print('All pipelines loaded.')
 
 
-def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int) -> str:
+def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
     pipe = pipe_1k_anyflow if use_anyflow == 'AnyFlow' else pipe_1k
     tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
     print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
+    tlog = []
     _t0 = time.perf_counter()
     pipe.to('cuda')
     torch.cuda.synchronize()
     _t_load = time.perf_counter()
-    print(f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+    _line = f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
     with torch.no_grad():
         kwargs = dict(
             height=h, width=w,
@@ -236,7 +238,9 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             guidance_scale=guidance,
             generator=torch.Generator('cuda').manual_seed(int(seed)),
         )
-        if use_anyflow != 'AnyFlow':
+        if use_anyflow == 'AnyFlow':
+            kwargs['timing_log'] = tlog
+        else:
             kwargs['use_flux_2'] = True
         out = pipe(prompt.strip(), **kwargs).images[0]
     torch.cuda.synchronize()
@@ -244,21 +248,25 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     pipe.to('cpu')
     torch.cuda.empty_cache()
     _t_offload = time.perf_counter()
-    print(f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+    _line = f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
     path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
     _t_save = time.perf_counter()
-    print(f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
-    return str(path)
+    _line = f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
+    return str(path), '\n'.join(tlog)
 
 
-def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int) -> str:
+def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
     print(f'\n[Generate 4K] 4096x4096, {num_steps} steps, seed={int(seed)}')
+    tlog = []
     _t0 = time.perf_counter()
     pipe_4k.to('cuda')
     torch.cuda.synchronize()
     _t_load = time.perf_counter()
-    print(f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+    _line = f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
     with torch.no_grad():
         out = pipe_4k(
             prompt.strip(),
@@ -273,12 +281,14 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int) -> str:
     pipe_4k.to('cpu')
     torch.cuda.empty_cache()
     _t_offload = time.perf_counter()
-    print(f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+    _line = f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
     path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
     _t_save = time.perf_counter()
-    print(f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
-    return str(path)
+    _line = f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)'
+    print(_line); tlog.append(_line)
+    return str(path), '\n'.join(tlog)
 
 
 with gr.Blocks(title='DC-Gen') as demo:
@@ -307,6 +317,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     seed_1k = gr.Number(0, label='Seed', precision=0)
                 with gr.Column():
                     out_1k = gr.Image(label='Output', type='filepath')
+                    timing_1k = gr.Textbox(label='Timing', lines=6, interactive=False)
                     btn_1k = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -319,7 +330,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_1k.click(
                 generate_1k,
                 inputs=[prompt_1k, model_toggle, aspect_1k, steps_1k, guidance_1k, seed_1k],
-                outputs=[out_1k],
+                outputs=[out_1k, timing_1k],
             )
 
         with gr.Tab('DC-Gen 4K'):
@@ -333,6 +344,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     seed_4k = gr.Number(0, label='Seed', precision=0)
                 with gr.Column():
                     out_4k = gr.Image(label='Output', type='filepath')
+                    timing_4k = gr.Textbox(label='Timing', lines=6, interactive=False)
                     btn_4k = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -342,7 +354,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
-            btn_4k.click(generate_4k, inputs=[prompt_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k])
+            btn_4k.click(generate_4k, inputs=[prompt_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
 
 demo.queue(default_concurrency_limit=1)
 

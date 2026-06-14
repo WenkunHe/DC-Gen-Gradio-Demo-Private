@@ -171,11 +171,17 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         true_cfg_scale: float = 1.0,
         generator: Optional[torch.Generator] = None,
         output_type: str = 'pil',
+        timing_log: Optional[list] = None,
     ) -> FluxPipelineOutput:
         device = self._execution_device
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
 
         _t0 = time.perf_counter()
+
+        def _tlog(msg):
+            print(msg)
+            if timing_log is not None:
+                timing_log.append(msg)
 
         # --- Stage 1: condition encoding ---
         prompt_embeds, pooled_prompt_embeds, txt_ids = self.encode_prompt(prompt, device)
@@ -200,7 +206,7 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         if device.type == 'cuda':
             torch.cuda.synchronize(device)
         _t1 = time.perf_counter()
-        print(f'[Timing] Condition encoding : {_t1 - _t0:.3f}s  (total {_t1 - _t0:.3f}s)')
+        _tlog(f'[Timing] Condition encoding : {_t1 - _t0:.3f}s  (total {_t1 - _t0:.3f}s)')
 
         # --- Stage 2: denoising ---
         latent_h = height // self.vae_scale_factor
@@ -258,7 +264,7 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         if device.type == 'cuda':
             torch.cuda.synchronize(device)
         _t2 = time.perf_counter()
-        print(f'[Timing] Denoising          : {_t2 - _t1:.3f}s  (total {_t2 - _t0:.3f}s)')
+        _tlog(f'[Timing] Denoising          : {_t2 - _t1:.3f}s  (total {_t2 - _t0:.3f}s)')
 
         if output_type == 'latent':
             return FluxPipelineOutput(images=latents)
@@ -273,6 +279,6 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         if device.type == 'cuda':
             torch.cuda.synchronize(device)
         _t3 = time.perf_counter()
-        print(f'[Timing] VAE decoding       : {_t3 - _t2:.3f}s  (total {_t3 - _t0:.3f}s)')
+        _tlog(f'[Timing] VAE decoding       : {_t3 - _t2:.3f}s  (total {_t3 - _t0:.3f}s)')
 
         return FluxPipelineOutput(images=image)
