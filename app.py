@@ -105,15 +105,17 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
 
 def load_pipeline_anyflow(subdir: str):
     local_dir = _download_subdir(subdir)
-    # Patch the cloned AnyFlow with the checkpoint's custom_code/ versions.
-    # The main AnyFlow branch has an older scheduler that wraps output in
-    # FlowMapEulerDiscreteSchedulerOutput; custom_code/ returns a plain tensor.
+    # Patch the cloned AnyFlow with the correct DC-Gen custom versions bundled in
+    # this repo under custom_code/.  Do NOT rely on the checkpoint's custom_code/
+    # subdirectory — snapshot_download with allow_patterns='{subdir}/*' only
+    # matches one directory level deep and may not download nested subdirs.
     import shutil
-    shutil.copy(local_dir / 'transformer_dcgen_flux_model.py',
+    custom_code_dir = repo_root / 'custom_code'
+    shutil.copy(custom_code_dir / 'transformer_dcgen_flux_model.py',
                 anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py')
-    shutil.copy(local_dir / 'custom_code' / 'scheduling_flowmap_euler_discrete.py',
+    shutil.copy(custom_code_dir / 'scheduling_flowmap_euler_discrete.py',
                 anyflow_src / 'far' / 'schedulers' / 'scheduling_flowmap_euler_discrete.py')
-    shutil.copy(local_dir / 'custom_code' / 'pipeline_dcgen_flux_anyflow.py',
+    shutil.copy(custom_code_dir / 'pipeline_dcgen_flux_anyflow.py',
                 anyflow_src / 'far' / 'pipelines' / 'pipeline_dcgen_flux_anyflow.py')
 
     # Invalidate module cache so the freshly-copied files are picked up
