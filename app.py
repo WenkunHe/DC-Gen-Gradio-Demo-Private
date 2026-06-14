@@ -105,15 +105,44 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
 
 def load_pipeline_anyflow(subdir: str):
     local_dir = _download_subdir(subdir)
-    # Copy transformer model into far/models so diffusers can resolve far.models.transformer_dcgen_flux_model
+    # Copy transformer model into far/models so the import resolves correctly
     import shutil
     dst = anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py'
     if not dst.exists():
         shutil.copy(local_dir / 'transformer_dcgen_flux_model.py', dst)
-    # Import the custom pipeline class from the checkpoint directory
+    # Import custom classes
     sys.path.insert(0, str(local_dir))
     from pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
-    pipe = DCGenFluxAnyFlowPipeline.from_pretrained(str(local_dir), torch_dtype=torch.bfloat16)
+    from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
+    from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
+    from diffusers import AutoencoderDC
+    from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
+    from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
+
+    dtype = torch.bfloat16
+
+    # Load each component individually to avoid diffusers' custom-library issubclass check
+    vae           = AutoencoderDC.from_pretrained(local_dir / 'vae', torch_dtype=dtype)
+    tokenizer     = CLIPTokenizer.from_pretrained(local_dir / 'tokenizer')
+    tokenizer_2   = T5TokenizerFast.from_pretrained(local_dir / 'tokenizer_2')
+    text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
+    text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
+    transformer   = DCGenFluxFlowMapModel.from_pretrained(local_dir / 'transformer', torch_dtype=dtype)
+    scheduler     = FlowMapDiscreteScheduler.from_pretrained(local_dir / 'scheduler')
+
+    null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=True)
+
+    pipe = DCGenFluxAnyFlowPipeline(
+        vae=vae,
+        tokenizer=tokenizer,
+        tokenizer_2=tokenizer_2,
+        text_encoder=text_encoder,
+        text_encoder_2=text_encoder_2,
+        transformer=transformer,
+        scheduler=scheduler,
+        null_prompt_embeds=null_embeds.get('null_prompt_embeds'),
+        null_pooled_prompt_embeds=null_embeds.get('null_pooled_prompt_embeds'),
+    )
     pipe.set_progress_bar_config(disable=True)
     return pipe
 
