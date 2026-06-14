@@ -123,14 +123,22 @@ def load_pipeline_anyflow(subdir: str):
     # Load each component individually to avoid diffusers' custom-library issubclass check
     vae           = AutoencoderDC.from_pretrained(local_dir / 'vae', torch_dtype=dtype)
     # Load directly from tokenizer.json to avoid tokenizer_config.json version mismatches
-    # (extra_special_tokens saved as list instead of dict in older transformers)
+    # (extra_special_tokens saved as list instead of dict in older transformers).
+    # Set pad/eos/bos tokens explicitly since tokenizer_config.json is skipped.
     tokenizer = PreTrainedTokenizerFast(
         tokenizer_file=str(local_dir / 'tokenizer' / 'tokenizer.json'),
         model_max_length=77,
+        pad_token='<|endoftext|>',
+        eos_token='<|endoftext|>',
+        bos_token='<|startoftext|>',
+        unk_token='<|endoftext|>',
     )
     tokenizer_2 = PreTrainedTokenizerFast(
         tokenizer_file=str(local_dir / 'tokenizer_2' / 'tokenizer.json'),
         model_max_length=512,
+        eos_token='</s>',
+        unk_token='<unk>',
+        pad_token='</s>',
     )
     text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
