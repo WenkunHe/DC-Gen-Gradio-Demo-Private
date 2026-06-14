@@ -105,6 +105,11 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
 
 def load_pipeline_anyflow(subdir: str):
     local_dir = _download_subdir(subdir)
+    # Copy transformer model into far/models so diffusers can resolve far.models.transformer_dcgen_flux_model
+    import shutil
+    dst = anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py'
+    if not dst.exists():
+        shutil.copy(local_dir / 'transformer_dcgen_flux_model.py', dst)
     # Import the custom pipeline class from the checkpoint directory
     sys.path.insert(0, str(local_dir))
     from pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
