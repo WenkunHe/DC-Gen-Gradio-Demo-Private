@@ -66,7 +66,8 @@ output_dir.mkdir(parents=True, exist_ok=True)
 def load_pipeline(hub_repo: str) -> DCGen_FluxPipeline:
     local_dir = repo_root / 'pretrained_models' / hub_repo
     if not (local_dir / 'model_index.json').exists():
-        snapshot_download(repo_id=hub_repo, local_dir=str(local_dir))
+        token = os.environ.get('HF_TOKEN')
+        snapshot_download(repo_id=hub_repo, repo_type='dataset', local_dir=str(local_dir), token=token)
     pipe = DCGen_FluxPipeline.from_pretrained(str(local_dir), torch_dtype=torch.bfloat16)
     pipe.set_progress_bar_config(disable=True)
     return pipe
