@@ -110,8 +110,10 @@ def load_pipeline_anyflow(subdir: str):
     dst = anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py'
     if not dst.exists():
         shutil.copy(local_dir / 'transformer_dcgen_flux_model.py', dst)
-    # Import custom classes
+    # Import custom classes — insert local_dir first, then repo_root at 0
+    # so that the repo_root patched pipeline takes priority over the checkpoint copy.
     sys.path.insert(0, str(local_dir))
+    sys.path.insert(0, str(repo_root))
     from pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
     from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
     from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
