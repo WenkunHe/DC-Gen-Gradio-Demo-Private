@@ -116,14 +116,16 @@ def load_pipeline_anyflow(subdir: str):
     from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
     from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
     from diffusers import AutoencoderDC
-    from transformers import AutoTokenizer, CLIPTextModel, T5EncoderModel
+    from transformers import CLIPTextModel, PreTrainedTokenizerFast, T5EncoderModel
 
     dtype = torch.bfloat16
 
     # Load each component individually to avoid diffusers' custom-library issubclass check
     vae           = AutoencoderDC.from_pretrained(local_dir / 'vae', torch_dtype=dtype)
-    tokenizer     = AutoTokenizer.from_pretrained(local_dir / 'tokenizer')
-    tokenizer_2   = AutoTokenizer.from_pretrained(local_dir / 'tokenizer_2')
+    # Both tokenizer dirs only ship tokenizer.json — use PreTrainedTokenizerFast to avoid
+    # slow-tokenizer fallbacks that require vocab.json / spiece.model
+    tokenizer     = PreTrainedTokenizerFast.from_pretrained(local_dir / 'tokenizer')
+    tokenizer_2   = PreTrainedTokenizerFast.from_pretrained(local_dir / 'tokenizer_2')
     text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
     transformer   = DCGenFluxFlowMapModel.from_pretrained(local_dir / 'transformer', torch_dtype=dtype)
