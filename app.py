@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 import uuid
 
 import gradio as gr
@@ -221,11 +222,13 @@ print('All pipelines loaded.')
 def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int) -> str:
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
     pipe = pipe_1k_anyflow if use_anyflow == 'AnyFlow' else pipe_1k
+    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
+    print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
+    _t0 = time.perf_counter()
     pipe.to('cuda')
     with torch.no_grad():
         kwargs = dict(
-            height=h,
-            width=w,
+            height=h, width=w,
             num_inference_steps=num_steps,
             guidance_scale=guidance,
             generator=torch.Generator('cuda').manual_seed(int(seed)),
@@ -233,30 +236,38 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         if use_anyflow != 'AnyFlow':
             kwargs['use_flux_2'] = True
         out = pipe(prompt.strip(), **kwargs).images[0]
+    torch.cuda.synchronize()
+    _t_gen = time.perf_counter()
     pipe.to('cpu')
     torch.cuda.empty_cache()
-    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
     path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
+    _t_save = time.perf_counter()
+    print(f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
     return str(path)
 
 
 def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int) -> str:
+    print(f'\n[Generate 4K] 4096x4096, {num_steps} steps, seed={int(seed)}')
+    _t0 = time.perf_counter()
     pipe_4k.to('cuda')
     with torch.no_grad():
         out = pipe_4k(
             prompt.strip(),
-            height=4096,
-            width=4096,
+            height=4096, width=4096,
             num_inference_steps=num_steps,
             guidance_scale=guidance,
             generator=torch.Generator('cuda').manual_seed(int(seed)),
             use_flux_2=False,
         ).images[0]
+    torch.cuda.synchronize()
+    _t_gen = time.perf_counter()
     pipe_4k.to('cpu')
     torch.cuda.empty_cache()
     path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
     out.save(str(path))
+    _t_save = time.perf_counter()
+    print(f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
     return str(path)
 
 

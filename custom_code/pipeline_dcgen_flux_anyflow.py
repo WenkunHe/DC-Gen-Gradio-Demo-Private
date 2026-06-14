@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from typing import List, Optional, Union
+import time
 
 import torch
 from diffusers.image_processor import VaeImageProcessor
@@ -174,6 +175,9 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         device = self._execution_device
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
 
+        _t0 = time.perf_counter()
+
+        # --- Stage 1: condition encoding ---
         prompt_embeds, pooled_prompt_embeds, txt_ids = self.encode_prompt(prompt, device)
         do_true_cfg = true_cfg_scale is not None and true_cfg_scale > 1.0
         negative_prompt_embeds = None
@@ -193,6 +197,12 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
             else:
                 negative_prompt_embeds, negative_pooled_prompt_embeds, _ = self.encode_prompt([""] * batch_size, device)
 
+        if device.type == 'cuda':
+            torch.cuda.synchronize(device)
+        _t1 = time.perf_counter()
+        print(f'[Timing] Condition encoding : {_t1 - _t0:.3f}s  (total {_t1 - _t0:.3f}s)')
+
+        # --- Stage 2: denoising ---
         latent_h = height // self.vae_scale_factor
         latent_w = width // self.vae_scale_factor
         num_channels = self.transformer.config.in_channels
@@ -206,7 +216,7 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
 
-        for i in tqdm(range(len(timesteps) - 1), desc="Sampling"):
+        for i in tqdm(range(len(timesteps) - 1), desc="Denoising"):
             t = timesteps[i]
             r = timesteps[i + 1]
             N = self.scheduler.config.num_train_timesteps
@@ -245,12 +255,24 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
 
         latents = self._unpack_latents(latents, h, w)
 
+        if device.type == 'cuda':
+            torch.cuda.synchronize(device)
+        _t2 = time.perf_counter()
+        print(f'[Timing] Denoising          : {_t2 - _t1:.3f}s  (total {_t2 - _t0:.3f}s)')
+
         if output_type == 'latent':
             return FluxPipelineOutput(images=latents)
 
+        # --- Stage 3: VAE decoding ---
         scaling_factor = getattr(self.vae.config, 'scaling_factor', 1.0)
         shift_factor = getattr(self.vae.config, 'shift_factor', 0.0)
         latents = (latents / scaling_factor) + shift_factor
         image = self.vae.decode(latents, return_dict=False)[0]
         image = self.image_processor.postprocess(image, output_type=output_type)
+
+        if device.type == 'cuda':
+            torch.cuda.synchronize(device)
+        _t3 = time.perf_counter()
+        print(f'[Timing] VAE decoding       : {_t3 - _t2:.3f}s  (total {_t3 - _t0:.3f}s)')
+
         return FluxPipelineOutput(images=image)
