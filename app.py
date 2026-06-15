@@ -402,12 +402,13 @@ EXAMPLES_QWEN_EDIT = [
 
 def _stream_generation(run_fn):
     """Run run_fn(tlog, ev_q, result) in a thread.
-    Yields (None, timing) after each stage update, then (path, timing) at the end.
+    Yields (None, timing, extended_prompt) after each stage update,
+    then (path, timing, extended_prompt) at the end.
     run_fn appends timing lines to tlog and puts 'update' in ev_q after each stage.
     """
     tlog = []
     ev_q = queue.Queue()
-    result = {'path': None, 'error': None}
+    result = {'path': None, 'error': None, 'extended_prompt': ''}
 
     def _worker():
         try:
@@ -424,11 +425,11 @@ def _stream_generation(run_fn):
         msg = ev_q.get()
         if msg == 'done':
             break
-        yield None, '\n'.join(tlog)
+        yield None, '\n'.join(tlog), result['extended_prompt']
 
     if result['error']:
         raise result['error']
-    yield result['path'], '\n'.join(tlog)
+    yield result['path'], '\n'.join(tlog), result['extended_prompt']
 
 
 def _tlog(tlog, ev_q, msg):
@@ -448,7 +449,8 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         if use_expander == 'Yes':
             _tlog(tlog, ev_q, '[Info]   Extending prompt...')
             prompt = _expand_prompt(_get_expander_t2i(), prompt)
-            _tlog(tlog, ev_q, f'[Info]   Extended prompt: {prompt[:120]}...')
+            result['extended_prompt'] = prompt
+            _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_pipe_1k_anyflow() if use_anyflow == 'AnyFlow' else _get_pipe_1k()
         pipe.to('cuda')
         torch.cuda.synchronize()
@@ -492,7 +494,8 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         if use_expander == 'Yes':
             _tlog(tlog, ev_q, '[Info]   Extending prompt...')
             prompt = _expand_prompt(_get_expander_t2i(), prompt)
-            _tlog(tlog, ev_q, f'[Info]   Extended prompt: {prompt[:120]}...')
+            result['extended_prompt'] = prompt
+            _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         if use_anyflow == 'AnyFlow':
             pipe_4k = _get_pipe_4k_anyflow()
         else:
@@ -567,7 +570,8 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
         if use_expander == 'Yes':
             _tlog(tlog, ev_q, '[Info]   Extending prompt...')
             prompt = _expand_prompt(_get_expander_t2v(), prompt)
-            _tlog(tlog, ev_q, f'[Info]   Extended prompt: {prompt[:120]}...')
+            result['extended_prompt'] = prompt
+            _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_t2v_pipe()
         pipe.to('cuda')
         torch.cuda.synchronize()
@@ -635,7 +639,8 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
             _tlog(tlog, ev_q, '[Info]   Extending prompt...')
             img_for_expand = Image.open(image) if isinstance(image, str) else Image.fromarray(image)
             prompt = _expand_prompt(_get_expander_i2v(), prompt, image=img_for_expand)
-            _tlog(tlog, ev_q, f'[Info]   Extended prompt: {prompt[:120]}...')
+            result['extended_prompt'] = prompt
+            _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_i2v_pipe()
 
         # Compute resolution from image, snapped to model's patch grid
@@ -715,7 +720,8 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
         if use_expander == 'Yes':
             _tlog(tlog, ev_q, '[Info]   Extending prompt...')
             prompt = _expand_prompt(_get_expander_edit(), prompt, image=img)
-            _tlog(tlog, ev_q, f'[Info]   Extended prompt: {prompt[:120]}...')
+            result['extended_prompt'] = prompt
+            _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_qwen_edit_pipe()
 
         # Pre-compute h/w so we can unpack latents after decoupled VAE decode
@@ -809,6 +815,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 with gr.Column():
                     out_1k = gr.Image(label='Output', type='filepath')
                     timing_1k = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    extended_prompt_1k = gr.Textbox(label='Extended Prompt', lines=4, interactive=False, visible=True)
                     btn_1k = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -821,7 +828,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_1k.click(
                 generate_1k,
                 inputs=[prompt_1k, model_toggle, aspect_1k, steps_1k, guidance_1k, seed_1k, expand_1k],
-                outputs=[out_1k, timing_1k],
+                outputs=[out_1k, timing_1k, extended_prompt_1k],
             )
 
         with gr.Tab('DC-Gen-FLUX-4K'):
@@ -852,6 +859,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 with gr.Column():
                     out_4k = gr.Image(label='Output', type='filepath')
                     timing_4k = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    extended_prompt_4k = gr.Textbox(label='Extended Prompt', lines=4, interactive=False, visible=True)
                     btn_4k = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -861,7 +869,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
-            btn_4k.click(generate_4k, inputs=[prompt_4k, model_toggle_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k, expand_4k], outputs=[out_4k, timing_4k])
+            btn_4k.click(generate_4k, inputs=[prompt_4k, model_toggle_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k, expand_4k], outputs=[out_4k, timing_4k, extended_prompt_4k])
 
         with gr.Tab('DC-Gen-Wan2.1-T2V-14B-720P'):
             gr.Markdown('### DC-VideoGen — Text-to-Video (Wan2.1 14B, DC-AE-V)')
@@ -878,6 +886,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 with gr.Column():
                     out_t2v    = gr.Video(label='Output', autoplay=True)
                     timing_t2v = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    extended_prompt_t2v = gr.Textbox(label='Extended Prompt', lines=4, interactive=False, visible=True)
                     btn_t2v    = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -890,7 +899,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_t2v.click(
                 generate_t2v,
                 inputs=[prompt_t2v, frames_t2v, steps_t2v, guidance_t2v, seed_t2v, expand_t2v],
-                outputs=[out_t2v, timing_t2v],
+                outputs=[out_t2v, timing_t2v, extended_prompt_t2v],
             )
 
         with gr.Tab('DC-Gen-Wan2.1-I2V-14B-720P'):
@@ -909,6 +918,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 with gr.Column():
                     out_i2v    = gr.Video(label='Output', autoplay=True)
                     timing_i2v = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    extended_prompt_i2v = gr.Textbox(label='Extended Prompt', lines=4, interactive=False, visible=True)
                     btn_i2v    = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -924,7 +934,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_i2v.click(
                 generate_i2v,
                 inputs=[image_i2v, prompt_i2v, frames_i2v, steps_i2v, guidance_i2v, seed_i2v, expand_i2v],
-                outputs=[out_i2v, timing_i2v],
+                outputs=[out_i2v, timing_i2v, extended_prompt_i2v],
             )
 
         with gr.Tab('DC-Gen-Qwen-Image-Edit'):
@@ -942,6 +952,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 with gr.Column():
                     out_qe     = gr.Image(label='Output', type='filepath')
                     timing_qe  = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    extended_prompt_qe = gr.Textbox(label='Extended Prompt', lines=4, interactive=False, visible=True)
                     btn_qe     = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
@@ -957,7 +968,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_qe.click(
                 generate_qwen_edit,
                 inputs=[image_qe, prompt_qe, steps_qe, cfg_qe, seed_qe, expand_qe],
-                outputs=[out_qe, timing_qe],
+                outputs=[out_qe, timing_qe, extended_prompt_qe],
             )
 
 demo.queue(default_concurrency_limit=1)
