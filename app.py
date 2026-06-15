@@ -33,6 +33,7 @@ sys.path.insert(0, str(anyflow_src))
 
 from pipeline_dcgen_flux import DCGen_FluxPipeline  # noqa: E402
 from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline  # noqa: E402
+from pipeline_dc_qwen_edit import build_qwen_edit_pipeline  # noqa: E402
 
 INTRODUCTION = """
 # DC-Gen: High-Resolution Image Generation with DC-AE
@@ -277,6 +278,15 @@ def _get_i2v_pipe():
         _pipe_i2v = build_i2v_pipeline()
     return _pipe_i2v
 
+_pipe_qwen_edit = None
+
+def _get_qwen_edit_pipe():
+    global _pipe_qwen_edit
+    if _pipe_qwen_edit is None:
+        print('[Pipeline] Loading DC-Qwen-Image-Edit...')
+        _pipe_qwen_edit = build_qwen_edit_pipeline()
+    return _pipe_qwen_edit
+
 VIDEO_RESOLUTIONS_T2V = {
     '720p portrait  (720×1280)':  (720,  1280),
     '720p landscape (1280×720)':  (1280,  720),
@@ -334,6 +344,15 @@ EXAMPLES_I2V = [
         'his elongated shadow and fluttering clothes under the setting sun, evoking a sense of adolescent '
         'confusion, freedom, and gentle melancholy.',
     ),
+]
+
+
+_QWEN_EDIT_ASSETS = repo_root / 'assets' / 'qwen_edit_examples'
+EXAMPLES_QWEN_EDIT = [
+    (str(_QWEN_EDIT_ASSETS / 'cat.png'),   "Change the background to outside, and change 'CVPR' into 'ECCV'."),
+    (str(_QWEN_EDIT_ASSETS / 'dog.png'),   '小狗换成粘土材质'),
+    (str(_QWEN_EDIT_ASSETS / 'woman.png'), 'Replace the bracelet with a jade bangle.'),
+    (str(_QWEN_EDIT_ASSETS / 'beard.png'), '让他的胡子更长'),
 ]
 
 
@@ -538,6 +557,47 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
     yield from _stream_generation(_run)
 
 
+def generate_qwen_edit(image, prompt: str, negative_prompt: str,
+                       num_steps: int, cfg_scale: float, seed: int):
+    if image is None:
+        yield None, '[Error] Please upload an input image.'
+        return
+    print(f'\n[Generate QwenEdit] {num_steps} steps, cfg={cfg_scale}, seed={int(seed)}')
+    _t0 = time.perf_counter()
+
+    def _run(tlog, ev_q, result):
+        from PIL import Image as PILImage
+        img = PILImage.open(image).convert('RGB')
+        pipe = _get_qwen_edit_pipe()
+        pipe.to('cuda')
+        torch.cuda.synchronize()
+        _t_load = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+        with torch.inference_mode():
+            out = pipe(
+                image=img,
+                prompt=prompt.strip(),
+                negative_prompt=negative_prompt.strip() or ' ',
+                true_cfg_scale=cfg_scale,
+                num_inference_steps=num_steps,
+                generator=torch.Generator('cuda').manual_seed(int(seed)),
+            ).images[0]
+        torch.cuda.synchronize()
+        _t_gen = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Generation          : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        path = output_dir / f'qwen_edit_{uuid.uuid4().hex[:8]}.png'
+        out.save(str(path))
+        _t_save = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Storing             : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
+        result['path'] = str(path)
+
+    yield from _stream_generation(_run)
+
+
 with gr.Blocks(title='DC-Gen') as demo:
     gr.Markdown(INTRODUCTION)
 
@@ -677,6 +737,39 @@ with gr.Blocks(title='DC-Gen') as demo:
                 generate_i2v,
                 inputs=[image_i2v, prompt_i2v, frames_i2v, steps_i2v, guidance_i2v, seed_i2v],
                 outputs=[out_i2v, timing_i2v],
+            )
+
+        with gr.Tab('DC-Qwen-Image-Edit'):
+            gr.Markdown('### DC-Qwen-Image-Edit — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
+            with gr.Row():
+                with gr.Column():
+                    image_qe   = gr.Image(label='Input Image', type='filepath')
+                    prompt_qe  = gr.Textbox(label='Edit Instruction', lines=3,
+                                            placeholder='e.g. Change the background to outside')
+                    neg_qe     = gr.Textbox(label='Negative Prompt', lines=2, value=' ')
+                    with gr.Row():
+                        steps_qe   = gr.Slider(1, 100, value=50, step=1, label='Steps')
+                        cfg_qe     = gr.Slider(1.0, 10.0, value=4.0, step=0.1, label='CFG Scale')
+                    seed_qe    = gr.Number(0, label='Seed', precision=0)
+                with gr.Column():
+                    out_qe     = gr.Image(label='Output', type='filepath')
+                    timing_qe  = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    btn_qe     = gr.Button('Generate', variant='primary')
+
+            gr.Markdown('### Examples')
+            for img_path, instruction in EXAMPLES_QWEN_EDIT:
+                with gr.Row():
+                    gr.Image(value=img_path, show_label=False, interactive=False,
+                             width=120, height=80, scale=0, min_width=120)
+                    gr.Textbox(value=instruction, show_label=False, interactive=False, lines=2)
+                    use_btn = gr.Button('Use', scale=0, min_width=60)
+                    use_btn.click(lambda i=img_path, p=instruction: (i, p),
+                                  outputs=[image_qe, prompt_qe])
+
+            btn_qe.click(
+                generate_qwen_edit,
+                inputs=[image_qe, prompt_qe, neg_qe, steps_qe, cfg_qe, seed_qe],
+                outputs=[out_qe, timing_qe],
             )
 
 demo.queue(default_concurrency_limit=1)
