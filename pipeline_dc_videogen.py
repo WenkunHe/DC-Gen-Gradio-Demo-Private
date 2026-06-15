@@ -9,11 +9,20 @@ import sys
 import torch
 import torch.nn as nn
 
-# ── local paths ───────────────────────────────────────────────────────────────
-VIDEOGEN_ROOT = pathlib.Path('/home/hcai/workspace/code/dc-dev-videogen-fix/DC-VideoGen-Wan2.1-14B-Diffusers')
-DC_DEV        = pathlib.Path('/home/hcai/workspace/code/dc-dev-videogen-fix/dc-dev')
-FUSIONX       = pathlib.Path('/lustre/fs12/portfolios/nvr/projects/nvr_torontoai_videogen/fusionx/diffuser_checkpoints')
-CKPT          = VIDEOGEN_ROOT / 'checkpoints'
+# ── paths (override via env vars) ─────────────────────────────────────────────
+import os as _os
+VIDEOGEN_ROOT = pathlib.Path(_os.environ.get(
+    'DCVIDEOGEN_ROOT',
+    '/home/hcai/workspace/code/dc-dev-videogen-fix/DC-VideoGen-Wan2.1-14B-Diffusers'))
+DC_DEV        = pathlib.Path(_os.environ.get(
+    'DC_DEV_ROOT',
+    '/home/hcai/workspace/code/dc-dev-videogen-fix/dc-dev'))
+FUSIONX       = pathlib.Path(_os.environ.get(
+    'DCVIDEOGEN_FUSIONX',
+    '/lustre/fs12/portfolios/nvr/projects/nvr_torontoai_videogen/fusionx/diffuser_checkpoints'))
+CKPT          = pathlib.Path(_os.environ.get(
+    'DCVIDEOGEN_CKPT',
+    str(VIDEOGEN_ROOT / 'checkpoints')))
 
 for _p in (str(VIDEOGEN_ROOT), str(DC_DEV)):
     if _p not in sys.path:
