@@ -172,6 +172,7 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         generator: Optional[torch.Generator] = None,
         output_type: str = 'pil',
         timing_log: Optional[list] = None,
+        timing_event=None,
     ) -> FluxPipelineOutput:
         device = self._execution_device
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
@@ -182,6 +183,8 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
             print(msg)
             if timing_log is not None:
                 timing_log.append(msg)
+            if timing_event is not None:
+                timing_event.put('update')
 
         # --- Stage 1: condition encoding ---
         prompt_embeds, pooled_prompt_embeds, txt_ids = self.encode_prompt(prompt, device)

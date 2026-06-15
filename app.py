@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import pathlib
+import queue
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -219,76 +221,114 @@ pipe_4k = load_pipeline_standard(HUB_REPO_4K)
 print('All pipelines loaded.')
 
 
+def _stream_generation(run_fn):
+    """Run run_fn(tlog, ev_q, result) in a thread.
+    Yields (None, timing) after each stage update, then (path, timing) at the end.
+    run_fn appends timing lines to tlog and puts 'update' in ev_q after each stage.
+    """
+    tlog = []
+    ev_q = queue.Queue()
+    result = {'path': None, 'error': None}
+
+    def _worker():
+        try:
+            run_fn(tlog, ev_q, result)
+        except Exception as exc:
+            result['error'] = exc
+            tlog.append(f'[Error] {exc}')
+        finally:
+            ev_q.put('done')
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    while True:
+        msg = ev_q.get()
+        if msg == 'done':
+            break
+        yield None, '\n'.join(tlog)
+
+    if result['error']:
+        raise result['error']
+    yield result['path'], '\n'.join(tlog)
+
+
+def _tlog(tlog, ev_q, msg):
+    print(msg)
+    tlog.append(msg)
+    ev_q.put('update')
+
+
 def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
     pipe = pipe_1k_anyflow if use_anyflow == 'AnyFlow' else pipe_1k
     tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
     print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
-    tlog = []
     _t0 = time.perf_counter()
-    pipe.to('cuda')
-    torch.cuda.synchronize()
-    _t_load = time.perf_counter()
-    _line = f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    with torch.no_grad():
-        kwargs = dict(
-            height=h, width=w,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance,
-            generator=torch.Generator('cuda').manual_seed(int(seed)),
-        )
-        if use_anyflow == 'AnyFlow':
-            kwargs['timing_log'] = tlog
-        else:
-            kwargs['use_flux_2'] = True
-        out = pipe(prompt.strip(), **kwargs).images[0]
-    torch.cuda.synchronize()
-    _t_gen = time.perf_counter()
-    pipe.to('cpu')
-    torch.cuda.empty_cache()
-    _t_offload = time.perf_counter()
-    _line = f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
-    out.save(str(path))
-    _t_save = time.perf_counter()
-    _line = f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    return str(path), '\n'.join(tlog)
+
+    def _run(tlog, ev_q, result):
+        pipe.to('cuda')
+        torch.cuda.synchronize()
+        _t_load = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+        with torch.no_grad():
+            kwargs = dict(
+                height=h, width=w,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance,
+                generator=torch.Generator('cuda').manual_seed(int(seed)),
+            )
+            if use_anyflow == 'AnyFlow':
+                kwargs['timing_log'] = tlog
+                kwargs['timing_event'] = ev_q
+            else:
+                kwargs['use_flux_2'] = True
+            out = pipe(prompt.strip(), **kwargs).images[0]
+        torch.cuda.synchronize()
+        _t_gen = time.perf_counter()
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
+        out.save(str(path))
+        _t_save = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
+        result['path'] = str(path)
+
+    yield from _stream_generation(_run)
 
 
 def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
     print(f'\n[Generate 4K] 4096x4096, {num_steps} steps, seed={int(seed)}')
-    tlog = []
     _t0 = time.perf_counter()
-    pipe_4k.to('cuda')
-    torch.cuda.synchronize()
-    _t_load = time.perf_counter()
-    _line = f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    with torch.no_grad():
-        out = pipe_4k(
-            prompt.strip(),
-            height=4096, width=4096,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance,
-            generator=torch.Generator('cuda').manual_seed(int(seed)),
-            use_flux_2=False,
-        ).images[0]
-    torch.cuda.synchronize()
-    _t_gen = time.perf_counter()
-    pipe_4k.to('cpu')
-    torch.cuda.empty_cache()
-    _t_offload = time.perf_counter()
-    _line = f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
-    out.save(str(path))
-    _t_save = time.perf_counter()
-    _line = f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)'
-    print(_line); tlog.append(_line)
-    return str(path), '\n'.join(tlog)
+
+    def _run(tlog, ev_q, result):
+        pipe_4k.to('cuda')
+        torch.cuda.synchronize()
+        _t_load = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+        with torch.no_grad():
+            out = pipe_4k(
+                prompt.strip(),
+                height=4096, width=4096,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance,
+                generator=torch.Generator('cuda').manual_seed(int(seed)),
+                use_flux_2=False,
+            ).images[0]
+        torch.cuda.synchronize()
+        _t_gen = time.perf_counter()
+        pipe_4k.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
+        out.save(str(path))
+        _t_save = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
+        result['path'] = str(path)
+
+    yield from _stream_generation(_run)
 
 
 with gr.Blocks(title='DC-Gen') as demo:
@@ -302,7 +342,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     prompt_1k = gr.Textbox(label='Prompt', lines=4)
                     model_toggle = gr.Radio(
                         choices=['AnyFlow', 'Standard'],
-                        value='AnyFlow',
+                        value='Standard',
                         label='Model',
                         info='AnyFlow: on-policy distilled model (faster, any-step); Standard: base 1K model',
                     )
@@ -315,6 +355,10 @@ with gr.Blocks(title='DC-Gen') as demo:
                         steps_1k = gr.Slider(1, 50, value=20, step=1, label='Steps')
                         guidance_1k = gr.Slider(1.0, 10.0, value=3.5, step=0.1, label='Guidance Scale')
                     seed_1k = gr.Number(0, label='Seed', precision=0)
+                    model_toggle.change(
+                        lambda m: gr.update(value=4 if m == 'AnyFlow' else 20),
+                        inputs=[model_toggle], outputs=[steps_1k],
+                    )
                 with gr.Column():
                     out_1k = gr.Image(label='Output', type='filepath')
                     timing_1k = gr.Textbox(label='Timing', lines=6, interactive=False)
