@@ -2,19 +2,17 @@
 DC-Qwen-Image-Edit pipeline builder.
 Checkpoints auto-downloaded from HuggingFace on first use.
 Files live under upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit/ in the repo;
-they are downloaded into pretrained_models/dc_qwen_edit/ (prefix stripped).
+they are moved to pretrained_models/dc_qwen_edit/ (prefix stripped) after download.
 """
 
 import os
 import pathlib
 import shutil
 import sys
-import tempfile
 import torch
 from huggingface_hub import snapshot_download
 
 HUB_REPO_QWEN_EDIT = 'nvidia/DC-Qwen-Image-Edit'
-_HUB_PREFIX        = 'upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit'
 
 _repo_root = pathlib.Path(__file__).resolve().parent
 CKPT = _repo_root / 'pretrained_models' / 'dc_qwen_edit'
@@ -30,34 +28,38 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     print(f'[QwenEdit] Downloading from {HUB_REPO_QWEN_EDIT} ...')
     CKPT.mkdir(parents=True, exist_ok=True)
 
-    # Download all files into a staging directory first
-    staging = pathlib.Path(tempfile.mkdtemp(prefix='dc_qwen_dl_'))
-    try:
-        snapshot_download(
-            repo_id=HUB_REPO_QWEN_EDIT,
-            repo_type='model',
-            local_dir=str(staging),
-            token=token,
-        )
+    # Download with actual files (not symlinks) directly into CKPT.
+    # Files land at CKPT/upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit/**
+    snapshot_download(
+        repo_id=HUB_REPO_QWEN_EDIT,
+        repo_type='model',
+        local_dir=str(CKPT),
+        local_dir_use_symlinks=False,
+        token=token,
+    )
 
-        # Find model_index.json (follow symlinks; newer hf_hub uses symlinked dirs)
-        src = None
-        for root, dirs, files in os.walk(str(staging), followlinks=True):
-            if 'model_index.json' in files:
-                src = pathlib.Path(root)
-                break
-        if src is None:
-            raise RuntimeError(f'model_index.json not found after download in {staging}')
-        print(f'[QwenEdit] Found model at {src.relative_to(staging)}')
+    # Find model_index.json under CKPT (walk follows real files, no symlink issues)
+    src = None
+    for root, dirs, files in os.walk(str(CKPT)):
+        if _SENTINEL in files:
+            src = pathlib.Path(root)
+            break
 
-        # Move contents of that directory directly into CKPT
-        for item in src.iterdir():
-            dst = CKPT / item.name
-            if dst.exists():
-                shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
-            shutil.move(str(item), str(dst))
-    finally:
-        shutil.rmtree(str(staging), ignore_errors=True)
+    if src is None or src == CKPT:
+        # Already at the right place or not found — either way we're done
+        return CKPT
+
+    print(f'[QwenEdit] Moving model from {src.relative_to(CKPT)} to root ...')
+    for item in src.iterdir():
+        dst = CKPT / item.name
+        if dst.exists():
+            shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
+        shutil.move(str(item), str(dst))
+
+    # Remove leftover upload/ scaffold
+    upload_dir = CKPT / src.relative_to(CKPT).parts[0]
+    if upload_dir.exists() and upload_dir != CKPT:
+        shutil.rmtree(str(upload_dir))
 
     return CKPT
 
