@@ -60,8 +60,7 @@ HUB_REPO          = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
 HUB_REPO_1K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
 HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
 HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
-HUB_REPO_4K_ANYFLOW = 'kimi000/Anyflow-dc-gen-4K'
-_HF_TOKEN_4K_ANYFLOW = os.environ.get('HF_TOKEN_4K_ANYFLOW') or os.environ.get('HF_TOKEN')
+HUB_REPO_4K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K-Anyflow'
 
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
@@ -97,14 +96,6 @@ EXAMPLES_4K = [
 ]
 
 
-def _download_full_repo(repo_id: str, local_name: str, token: str | None = None) -> pathlib.Path:
-    local_dir = repo_root / 'pretrained_models' / local_name
-    if not (local_dir / 'model_index.json').exists():
-        snapshot_download(repo_id=repo_id, repo_type='model',
-                          local_dir=str(local_dir), token=token)
-    return local_dir
-
-
 def _download_subdir(subdir: str) -> pathlib.Path:
     local_dir = repo_root / 'pretrained_models' / subdir
     if not (local_dir / 'model_index.json').exists():
@@ -131,8 +122,8 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
     return pipe
 
 
-def load_pipeline_anyflow(subdir_or_dir):
-    local_dir = subdir_or_dir if isinstance(subdir_or_dir, pathlib.Path) else _download_subdir(subdir_or_dir)
+def load_pipeline_anyflow(subdir: str):
+    local_dir = _download_subdir(subdir)
     # Patch the cloned AnyFlow with the correct DC-Gen custom versions bundled in
     # this repo under custom_code/.  Do NOT rely on the checkpoint's custom_code/
     # subdirectory — snapshot_download with allow_patterns='{subdir}/*' only
@@ -272,8 +263,7 @@ def _get_pipe_4k_anyflow():
     global _pipe_4k_anyflow
     if _pipe_4k_anyflow is None:
         print('[Pipeline] Loading 4K-AnyFlow...')
-        local_dir = _download_full_repo(HUB_REPO_4K_ANYFLOW, 'Anyflow-dc-gen-4K', _HF_TOKEN_4K_ANYFLOW)
-        _pipe_4k_anyflow = load_pipeline_anyflow(local_dir)
+        _pipe_4k_anyflow = load_pipeline_anyflow(HUB_REPO_4K_ANYFLOW)
     return _pipe_4k_anyflow
 
 def _get_pipe_4k():
