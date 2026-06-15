@@ -29,23 +29,32 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     print(f'[QwenEdit] Downloading from {HUB_REPO_QWEN_EDIT} ...')
     CKPT.mkdir(parents=True, exist_ok=True)
 
-    # Download all files (repo contains only checkpoints); they land at
-    # CKPT/upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit/**
-    snapshot_download(
-        repo_id=HUB_REPO_QWEN_EDIT,
-        repo_type='model',
-        local_dir=str(CKPT),
-        token=token,
-    )
+    # Download all files into a staging directory first
+    import tempfile
+    staging = pathlib.Path(tempfile.mkdtemp(prefix='dc_qwen_dl_'))
+    try:
+        snapshot_download(
+            repo_id=HUB_REPO_QWEN_EDIT,
+            repo_type='model',
+            local_dir=str(staging),
+            token=token,
+        )
 
-    # Move the nested tree up to CKPT/ and remove the upload/ scaffold
-    src = CKPT / _HUB_PREFIX
-    for item in src.iterdir():
-        dst = CKPT / item.name
-        if dst.exists():
-            shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
-        shutil.move(str(item), str(dst))
-    shutil.rmtree(str(CKPT / 'upload'))
+        # Find model_index.json wherever snapshot_download placed it
+        hits = list(staging.rglob('model_index.json'))
+        if not hits:
+            raise RuntimeError(f'model_index.json not found after download in {staging}')
+        src = hits[0].parent
+        print(f'[QwenEdit] Found model at {src.relative_to(staging)}')
+
+        # Move contents of that directory directly into CKPT
+        for item in src.iterdir():
+            dst = CKPT / item.name
+            if dst.exists():
+                shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
+            shutil.move(str(item), str(dst))
+    finally:
+        shutil.rmtree(str(staging), ignore_errors=True)
 
     return CKPT
 
