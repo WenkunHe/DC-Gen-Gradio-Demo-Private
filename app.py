@@ -72,6 +72,16 @@ ASPECT_RATIOS_1K = {
     '9:16 (768×1344)':  (768, 1344),
 }
 
+ASPECT_RATIOS_4K = {
+    '1:1  (4096×4096)': (4096, 4096),
+    '4:3  (4608×3328)': (4608, 3328),
+    '3:4  (3328×4608)': (3328, 4608),
+    '16:9 (5376×3072)': (5376, 3072),
+    '9:16 (3072×5376)': (3072, 5376),
+    '9:7  (4608×3584)': (4608, 3584),
+    '7:9  (3584×4608)': (3584, 4608),
+}
+
 EXAMPLES_1K = [
     "A well-groomed man with short, sleek brown hair and fashionable eyeglasses smiles warmly into the camera in this polished professional portrait.",
     "Anime style. A graceful anime girl with flowing silver hair adorned with a delicate blue ribbon stands in a serene outdoor scene, a vibrant blue butterfly perched on her shoulder.",
@@ -403,8 +413,9 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     yield from _stream_generation(_run)
 
 
-def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
-    print(f'\n[Generate 4K] 4096x4096, {num_steps} steps, seed={int(seed)}')
+def generate_4k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
+    h, w = ASPECT_RATIOS_4K[aspect_ratio]
+    print(f'\n[Generate 4K] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
@@ -416,7 +427,7 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
         with torch.no_grad():
             out = pipe_4k(
                 prompt.strip(),
-                height=4096, width=4096,
+                height=h, width=w,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
@@ -531,7 +542,7 @@ with gr.Blocks(title='DC-Gen') as demo:
     gr.Markdown(INTRODUCTION)
 
     with gr.Tabs():
-        with gr.Tab('DC-Gen 1K'):
+        with gr.Tab('DC-Gen-FLUX-1K'):
             gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 1K Generation (DC-AE-f32)')
             with gr.Row():
                 with gr.Column():
@@ -573,11 +584,16 @@ with gr.Blocks(title='DC-Gen') as demo:
                 outputs=[out_1k, timing_1k],
             )
 
-        with gr.Tab('DC-Gen 4K'):
-            gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 4K Generation (DC-AE-f64, 4096×4096)')
+        with gr.Tab('DC-Gen-FLUX-4K'):
+            gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 4K Generation (DC-AE-f64)')
             with gr.Row():
                 with gr.Column():
                     prompt_4k = gr.Textbox(label='Prompt', lines=4)
+                    aspect_ratio_4k = gr.Dropdown(
+                        list(ASPECT_RATIOS_4K.keys()),
+                        value='1:1  (4096×4096)',
+                        label='Aspect Ratio',
+                    )
                     with gr.Row():
                         steps_4k = gr.Slider(1, 50, value=20, step=1, label='Steps')
                         guidance_4k = gr.Slider(1.0, 10.0, value=3.5, step=0.1, label='Guidance Scale')
@@ -594,9 +610,9 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
-            btn_4k.click(generate_4k, inputs=[prompt_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
+            btn_4k.click(generate_4k, inputs=[prompt_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
 
-        with gr.Tab('DC-VideoGen T2V'):
+        with gr.Tab('DC-Gen-Wan2.1-T2V-14B-720P'):
             gr.Markdown('### DC-VideoGen — Text-to-Video (Wan2.1 14B, DC-AE-V)')
             with gr.Row():
                 with gr.Column():
@@ -630,7 +646,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                 outputs=[out_t2v, timing_t2v],
             )
 
-        with gr.Tab('DC-VideoGen I2V'):
+        with gr.Tab('DC-Gen-Wan2.1-I2V-14B-720P'):
             gr.Markdown('### DC-VideoGen — Image-to-Video (Wan2.1 14B, DC-AE-V)')
             with gr.Row():
                 with gr.Column():
