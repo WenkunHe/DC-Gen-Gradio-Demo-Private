@@ -29,13 +29,12 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     print(f'[QwenEdit] Downloading from {HUB_REPO_QWEN_EDIT} ...')
     CKPT.mkdir(parents=True, exist_ok=True)
 
-    # Download only the checkpoint subtree into CKPT; files land at
+    # Download all files (repo contains only checkpoints); they land at
     # CKPT/upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit/**
     snapshot_download(
         repo_id=HUB_REPO_QWEN_EDIT,
         repo_type='model',
         local_dir=str(CKPT),
-        allow_patterns=f'{_HUB_PREFIX}/**',
         token=token,
     )
 
