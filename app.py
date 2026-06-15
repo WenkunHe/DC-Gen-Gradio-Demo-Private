@@ -458,16 +458,17 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
-            out = pipe_4k(
-                prompt.strip(),
+            call_kwargs = dict(
                 height=h, width=w,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
-                use_flux_2=False,
-                timing_log=tlog,
-                timing_event=ev_q,
-            ).images[0]
+            )
+            if use_anyflow != 'AnyFlow':
+                call_kwargs['use_flux_2'] = False
+                call_kwargs['timing_log'] = tlog
+                call_kwargs['timing_event'] = ev_q
+            out = pipe_4k(prompt.strip(), **call_kwargs).images[0]
             torch.cuda.synchronize()
             _t_gen = time.perf_counter()
         pipe_4k.to('cpu')
