@@ -273,7 +273,40 @@ EXAMPLES_T2V = [
     'dust swirling gently at their feet. Distant mountains loom on the horizon.',
 ]
 
-EXAMPLES_T2V_I2V = EXAMPLES_T2V[:1]
+_I2V_ASSETS = repo_root / 'assets' / 'i2v_examples'
+EXAMPLES_I2V = [
+    (
+        str(_I2V_ASSETS / 'cat_surf.jpg'),
+        'Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. '
+        'The fluffy-furred feline gazes directly at the camera with a relaxed expression. '
+        'Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, '
+        'and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, '
+        'as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline\'s '
+        'intricate details and the refreshing atmosphere of the seaside.',
+    ),
+    (
+        str(_I2V_ASSETS / 'girl_cat.jpg'),
+        'Hard lighting, high contrast, mid-close up shot, artificial side lighting, soft focus background, '
+        'warm tones, a clean single-person frame. A blonde girl in her early twenties, wearing a light-colored '
+        'knit top and jeans, gently strokes a large, pure white cat while squatting on the studio floor. '
+        'The girl has delicate features and a gentle gaze, moving slowly. The cat has big round eyes that '
+        'express affection as it blinks. She then hugs the cat, which rests its head on her chest, creating '
+        'a natural interaction filled with a magical and dreamlike atmosphere.',
+    ),
+    (
+        str(_I2V_ASSETS / 'robot.jpg'),
+        'A towering, battle-scarred humanoid robot, reminiscent of a Transformer with powerful, segmented '
+        'armor and glowing red optics, walking through the skeletal remains of a city ruin. Twisted metal '
+        'and shattered concrete crunch under its heavy steps, as the robot scans the desolate, dust-choked '
+        'skyline under a dark sky.',
+    ),
+    (
+        str(_I2V_ASSETS / 'bicycle.jpg'),
+        'A thoughtful teenage boy riding an old bicycle, aimlessly wandering. Parallel tracking shot captures '
+        'his elongated shadow and fluttering clothes under the setting sun, evoking a sense of adolescent '
+        'confusion, freedom, and gentle melancholy.',
+    ),
+]
 
 
 def _stream_generation(run_fn):
@@ -596,11 +629,14 @@ with gr.Blocks(title='DC-Gen') as demo:
                     btn_i2v    = gr.Button('Generate', variant='primary')
 
             gr.Markdown('### Examples')
-            for ex in EXAMPLES_T2V_I2V:
+            for img_path, prompt in EXAMPLES_I2V:
                 with gr.Row():
-                    gr.Textbox(value=ex, show_label=False, interactive=False, lines=2)
+                    gr.Image(value=img_path, show_label=False, interactive=False,
+                             width=120, height=80, scale=0, min_width=120)
+                    gr.Textbox(value=prompt, show_label=False, interactive=False, lines=3)
                     use_btn = gr.Button('Use', scale=0, min_width=60)
-                    use_btn.click(lambda p=ex: p, outputs=[prompt_i2v])
+                    use_btn.click(lambda i=img_path, p=prompt: (i, p),
+                                  outputs=[image_i2v, prompt_i2v])
 
             btn_i2v.click(
                 generate_i2v,
