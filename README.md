@@ -19,6 +19,7 @@ git clone git@github.com:WenkunHe/DC-Gen-Gradio-Demo-Private.git
 cd DC-Gen-Gradio-Demo-Private
 conda create -n dcgen python=3.10 && conda activate dcgen
 pip install -r requirements.txt
+pip install flash-attn --no-build-isolation --no-cache-dir
 HF_TOKEN=<your_hf_token> python app.py
 ```
 
