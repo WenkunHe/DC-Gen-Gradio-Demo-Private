@@ -854,6 +854,13 @@ with gr.Blocks(title='DC-Gen') as demo:
                     gr.Textbox(value=ex, show_label=False, interactive=False, lines=2)
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_1k])
+            with gr.Row():
+                gr.Textbox(value='一只猫慵懒地躺在一只狗的怀里晒太阳。', show_label=False, interactive=False, lines=2)
+                use_btn_cn = gr.Button('Use', scale=0, min_width=60)
+                use_btn_cn.click(
+                    lambda: ('一只猫慵懒地躺在一只狗的怀里晒太阳。', 'Yes'),
+                    outputs=[prompt_1k, expand_1k],
+                )
 
             btn_1k.click(
                 generate_1k,
