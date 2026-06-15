@@ -443,23 +443,52 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
-            call_kwargs = dict(
-                height=h, width=w,
-                num_inference_steps=num_steps,
-                guidance_scale=guidance,
-                generator=torch.Generator('cuda').manual_seed(int(seed)),
-                timing_log=tlog,
-                timing_event=ev_q,
-            )
-            if use_anyflow != 'AnyFlow':
-                call_kwargs['use_flux_2'] = False
-            out = pipe_4k(prompt.strip(), **call_kwargs).images[0]
-            torch.cuda.synchronize()
-            _t_gen = time.perf_counter()
+            if use_anyflow == 'AnyFlow':
+                _timing = {}
+                def _step_cb(pipeline, i, t, cb_kwargs):
+                    if i == 0:
+                        torch.cuda.synchronize()
+                        _timing['cond_end'] = time.perf_counter()
+                    return cb_kwargs
+                latents = pipe_4k(
+                    prompt.strip(),
+                    height=h, width=w,
+                    num_inference_steps=num_steps,
+                    guidance_scale=guidance,
+                    generator=torch.Generator('cuda').manual_seed(int(seed)),
+                    output_type='latent',
+                    callback_on_step_end=_step_cb,
+                    callback_on_step_end_tensor_inputs=['latents'],
+                ).images
+                torch.cuda.synchronize()
+                _t_denoise_end = time.perf_counter()
+                _t_cond_end = _timing.get('cond_end', _t_load)
+                _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
+                _tlog(tlog, ev_q, f'[Timing] Denoising          : {_t_denoise_end - _t_cond_end:.3f}s  (total {_t_denoise_end - _t0:.3f}s)')
+                scaling_factor = getattr(pipe_4k.vae.config, 'scaling_factor', 1.0)
+                shift_factor = getattr(pipe_4k.vae.config, 'shift_factor', 0.0)
+                decoded = pipe_4k.vae.decode((latents / scaling_factor) + shift_factor, return_dict=False)[0]
+                out = pipe_4k.image_processor.postprocess(decoded, output_type='pil')[0]
+                torch.cuda.synchronize()
+                _t_vae = time.perf_counter()
+                _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
+            else:
+                out = pipe_4k(
+                    prompt.strip(),
+                    height=h, width=w,
+                    num_inference_steps=num_steps,
+                    guidance_scale=guidance,
+                    generator=torch.Generator('cuda').manual_seed(int(seed)),
+                    use_flux_2=False,
+                    timing_log=tlog,
+                    timing_event=ev_q,
+                ).images[0]
+                torch.cuda.synchronize()
+                _t_vae = time.perf_counter()
         pipe_4k.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'4k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()

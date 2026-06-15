@@ -173,6 +173,8 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
         output_type: str = 'pil',
         timing_log: Optional[list] = None,
         timing_event=None,
+        callback_on_step_end=None,
+        callback_on_step_end_tensor_inputs=None,
     ) -> FluxPipelineOutput:
         device = self._execution_device
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
@@ -261,6 +263,9 @@ class DCGenFluxAnyFlowPipeline(DiffusionPipeline):
                 noise_pred = noise_pred_uncond + true_cfg_scale * (noise_pred - noise_pred_uncond)
 
             latents = self.scheduler.step(noise_pred, latents, t, r)
+
+            if callback_on_step_end is not None:
+                callback_on_step_end(self, i, t, {'latents': latents})
 
         latents = self._unpack_latents(latents, h, w)
 
