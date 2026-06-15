@@ -114,6 +114,15 @@ def load_pipeline_anyflow(subdir: str):
     # matches one directory level deep and may not download nested subdirs.
     import shutil
     custom_code_dir = repo_root / 'custom_code'
+    # Delete __pycache__ dirs first so Python recompiles from the freshly-copied .py
+    # files rather than using stale bytecode that predates our edits.
+    for _pycache in (
+        anyflow_src / 'far' / 'models' / '__pycache__',
+        anyflow_src / 'far' / 'schedulers' / '__pycache__',
+        anyflow_src / 'far' / 'pipelines' / '__pycache__',
+    ):
+        if _pycache.exists():
+            shutil.rmtree(str(_pycache))
     shutil.copy(custom_code_dir / 'transformer_dcgen_flux_model.py',
                 anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py')
     shutil.copy(custom_code_dir / 'scheduling_flowmap_euler_discrete.py',
@@ -282,9 +291,13 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 kwargs['timing_event'] = ev_q
             else:
                 kwargs['use_flux_2'] = True
+            torch.cuda.synchronize()
+            _t_gen_start = time.perf_counter()
             out = pipe(prompt.strip(), **kwargs).images[0]
-        torch.cuda.synchronize()
-        _t_gen = time.perf_counter()
+            torch.cuda.synchronize()
+            _t_gen = time.perf_counter()
+            if use_anyflow != 'AnyFlow':
+                _tlog(tlog, ev_q, f'[Timing] Generation ({num_steps} steps): {_t_gen - _t_gen_start:.3f}s  (total {_t_gen - _t0:.3f}s)')
         pipe.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
@@ -308,6 +321,8 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
+            torch.cuda.synchronize()
+            _t_gen_start = time.perf_counter()
             out = pipe_4k(
                 prompt.strip(),
                 height=4096, width=4096,
@@ -316,8 +331,9 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
                 use_flux_2=False,
             ).images[0]
-        torch.cuda.synchronize()
-        _t_gen = time.perf_counter()
+            torch.cuda.synchronize()
+            _t_gen = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Generation ({num_steps} steps): {_t_gen - _t_gen_start:.3f}s  (total {_t_gen - _t0:.3f}s)')
         pipe_4k.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
