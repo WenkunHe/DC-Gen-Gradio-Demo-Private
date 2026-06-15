@@ -39,17 +39,6 @@ INTRODUCTION = """
 # DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
 
 DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
-
----
-> Run locally:
-```bash
-git clone git@github.com:WenkunHe/DC-Gen-Gradio-Demo-Private.git
-cd DC-Gen-Gradio-Demo-Private
-conda create -n dcgen python=3.10 && conda activate dcgen
-pip install -r requirements.txt
-HF_TOKEN=<your_hf_token> python app.py
-```
----
 """
 
 HUB_REPO          = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
