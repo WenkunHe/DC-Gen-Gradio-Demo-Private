@@ -34,7 +34,6 @@ sys.path.insert(0, str(anyflow_src))
 from pipeline_dcgen_flux import DCGen_FluxPipeline  # noqa: E402
 from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline  # noqa: E402
 from pipeline_dc_qwen_edit import build_qwen_edit_pipeline  # noqa: E402
-from qwen_25_extend import QwenPromptExpander  # noqa: E402
 
 INTRODUCTION = """
 # DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
@@ -294,6 +293,7 @@ def _get_expander_t2i():
     global _expander_t2i
     if _expander_t2i is None:
         print('[Expander] Loading T2I prompt expander...')
+        from qwen_25_extend import QwenPromptExpander
         _expander_t2i = QwenPromptExpander(is_t2i=True)
     return _expander_t2i
 
@@ -301,6 +301,7 @@ def _get_expander_t2v():
     global _expander_t2v
     if _expander_t2v is None:
         print('[Expander] Loading T2V prompt expander...')
+        from qwen_25_extend import QwenPromptExpander
         _expander_t2v = QwenPromptExpander(is_t2v=True)
     return _expander_t2v
 
@@ -308,6 +309,7 @@ def _get_expander_i2v():
     global _expander_i2v
     if _expander_i2v is None:
         print('[Expander] Loading I2V prompt expander...')
+        from qwen_25_extend import QwenPromptExpander
         _expander_i2v = QwenPromptExpander(is_i2v=True)
     return _expander_i2v
 
@@ -315,6 +317,7 @@ def _get_expander_edit():
     global _expander_edit
     if _expander_edit is None:
         print('[Expander] Loading image-edit prompt expander...')
+        from qwen_25_extend import QwenPromptExpander
         _expander_edit = QwenPromptExpander(is_vl=True, is_edit=True)
     return _expander_edit
 
