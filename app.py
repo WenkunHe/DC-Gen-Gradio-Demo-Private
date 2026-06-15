@@ -481,8 +481,16 @@ def generate_t2v(prompt: str, resolution: str, num_frames: int, num_steps: int, 
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
+
+        _timing = {}
+        def _step_cb(pipeline, i, t, cb_kwargs):
+            if i == 0:
+                torch.cuda.synchronize()
+                _timing['cond_end'] = time.perf_counter()
+            return cb_kwargs
+
         with torch.no_grad():
-            output = pipe(
+            out = pipe(
                 prompt=prompt.strip(),
                 negative_prompt=VIDEO_NEGATIVE_PROMPT,
                 height=h, width=w,
@@ -490,16 +498,30 @@ def generate_t2v(prompt: str, resolution: str, num_frames: int, num_steps: int, 
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
-            ).frames[0]
+                output_type='latent',
+                callback_on_step_end=_step_cb,
+                callback_on_step_end_tensor_inputs=['latents'],
+            )
         torch.cuda.synchronize()
-        _t_gen = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Generation         : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        _t_denoise_end = time.perf_counter()
+        _t_cond_end = _timing.get('cond_end', _t_load)
+        _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] Denoising          : {_t_denoise_end - _t_cond_end:.3f}s  (total {_t_denoise_end - _t0:.3f}s)')
+
+        with torch.no_grad():
+            latents = out.frames.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
+            video_tensor = pipe.vae.decode(latents, return_dict=False)[0]
+            output = pipe.video_processor.postprocess_video(video_tensor, output_type='np')
+        torch.cuda.synchronize()
+        _t_vae = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
+
         pipe.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f't2v_{uuid.uuid4().hex[:8]}.mp4'
-        export_to_video(output, str(path), fps=16)
+        export_to_video(output[0], str(path), fps=16)
         _t_save = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
@@ -530,8 +552,16 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
+
+        _timing = {}
+        def _step_cb(pipeline, i, t, cb_kwargs):
+            if i == 0:
+                torch.cuda.synchronize()
+                _timing['cond_end'] = time.perf_counter()
+            return cb_kwargs
+
         with torch.no_grad():
-            output = pipe(
+            out = pipe(
                 image=img,
                 prompt=prompt.strip(),
                 negative_prompt=VIDEO_NEGATIVE_PROMPT,
@@ -540,16 +570,30 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
-            ).frames[0]
+                output_type='latent',
+                callback_on_step_end=_step_cb,
+                callback_on_step_end_tensor_inputs=['latents'],
+            )
         torch.cuda.synchronize()
-        _t_gen = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Generation         : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        _t_denoise_end = time.perf_counter()
+        _t_cond_end = _timing.get('cond_end', _t_load)
+        _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] Denoising          : {_t_denoise_end - _t_cond_end:.3f}s  (total {_t_denoise_end - _t0:.3f}s)')
+
+        with torch.no_grad():
+            latents = out.frames.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
+            video_tensor = pipe.vae.decode(latents, return_dict=False)[0]
+            output = pipe.video_processor.postprocess_video(video_tensor, output_type='np')
+        torch.cuda.synchronize()
+        _t_vae = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
+
         pipe.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'i2v_{uuid.uuid4().hex[:8]}.mp4'
-        export_to_video(output, str(path), fps=16)
+        export_to_video(output[0], str(path), fps=16)
         _t_save = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
@@ -566,12 +610,28 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
 
     def _run(tlog, ev_q, result):
         from PIL import Image as PILImage
+        from pipeline_qwen_image_edit import calculate_dimensions
         img = PILImage.open(image).convert('RGB')
         pipe = _get_qwen_edit_pipe()
+
+        # Pre-compute h/w so we can unpack latents after decoupled VAE decode
+        _cw, _ch, _ = calculate_dimensions(1024 * 1024, img.size[0] / img.size[1])
+        _mul = pipe.vae_scale_factor * 2
+        _w = _cw // _mul * _mul
+        _h = _ch // _mul * _mul
+
         pipe.to('cuda')
         torch.cuda.synchronize()
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+
+        _timing = {}
+        def _step_cb(pipeline, i, t, cb_kwargs):
+            if i == 0:
+                torch.cuda.synchronize()
+                _timing['cond_end'] = time.perf_counter()
+            return cb_kwargs
+
         with torch.inference_mode():
             out = pipe(
                 image=img,
@@ -579,17 +639,33 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
                 negative_prompt=' ',
                 true_cfg_scale=cfg_scale,
                 num_inference_steps=num_steps,
+                height=_h, width=_w,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
-            ).images[0]
+                output_type='latent',
+                callback_on_step_end=_step_cb,
+                callback_on_step_end_tensor_inputs=['latents'],
+            )
         torch.cuda.synchronize()
-        _t_gen = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Generation          : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        _t_denoise_end = time.perf_counter()
+        _t_cond_end = _timing.get('cond_end', _t_load)
+        _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] Denoising          : {_t_denoise_end - _t_cond_end:.3f}s  (total {_t_denoise_end - _t0:.3f}s)')
+
+        with torch.inference_mode():
+            latents = pipe._unpack_latents(out.images, _h, _w, pipe.vae_scale_factor)
+            latents = latents.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
+            decoded = pipe.vae.decode(latents, return_dict=False)[0]
+            out_img = pipe.image_processor.postprocess(decoded, output_type='pil')[0]
+        torch.cuda.synchronize()
+        _t_vae = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
+
         pipe.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'qwen_edit_{uuid.uuid4().hex[:8]}.png'
-        out.save(str(path))
+        out_img.save(str(path))
         _t_save = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] Storing             : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
