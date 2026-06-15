@@ -448,11 +448,11 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
+                timing_log=tlog,
+                timing_event=ev_q,
             )
             if use_anyflow != 'AnyFlow':
                 call_kwargs['use_flux_2'] = False
-                call_kwargs['timing_log'] = tlog
-                call_kwargs['timing_event'] = ev_q
             out = pipe_4k(prompt.strip(), **call_kwargs).images[0]
             torch.cuda.synchronize()
             _t_gen = time.perf_counter()
