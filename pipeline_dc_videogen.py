@@ -18,17 +18,17 @@ HUB_REPO_VIDEOGEN = 'nvidia/DC-VideoGen-Wan2.1-14B'
 _repo_root = pathlib.Path(__file__).resolve().parent
 CKPT = _repo_root / 'pretrained_models' / 'dc_videogen'
 
-_REQUIRED_CKPT_FILES = [
+_REQUIRED_CKPT_PATHS = [
     'dc-ae-v-f32t4c32-1.0-bf16.pt',
-    'dc_videogen_wan2.1_t2v_14b_720p.pt',
-    'dc_videogen_wan2.1_i2v_14b_720p.pt',
+    'transformer_t2v/config.json',
+    'transformer_i2v/config.json',
     'models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth',
 ]
 
 def _ensure_videogen_ckpt() -> pathlib.Path:
     """Download checkpoints from HF if any required file is missing."""
-    if not all((CKPT / f).exists() for f in _REQUIRED_CKPT_FILES):
-        missing = [f for f in _REQUIRED_CKPT_FILES if not (CKPT / f).exists()]
+    if not all((CKPT / f).exists() for f in _REQUIRED_CKPT_PATHS):
+        missing = [f for f in _REQUIRED_CKPT_PATHS if not (CKPT / f).exists()]
         print(f'[VideoGen] Missing checkpoints: {missing}')
         print(f'[VideoGen] Downloading from {HUB_REPO_VIDEOGEN} ...')
         CKPT.mkdir(parents=True, exist_ok=True)
@@ -141,12 +141,9 @@ def build_t2v_pipeline() -> DCVideoGenWanTextToVideoPipeline:
     ckpt = _ensure_videogen_ckpt()
     ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(ckpt / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
 
-    transformer = WanTransformer3DModel(
-        patch_size=(1, 1, 1), in_channels=32, out_channels=32,
-    ).to(torch.bfloat16)
-    sd = torch.load(ckpt / 'dc_videogen_wan2.1_t2v_14b_720p.pt', map_location='cpu', weights_only=True)
-    missing, unexpected = transformer.load_state_dict(sd, strict=False)
-    print(f'  transformer: missing={len(missing)} unexpected={len(unexpected)}')
+    transformer = WanTransformer3DModel.from_pretrained(
+        str(ckpt), subfolder='transformer_t2v', torch_dtype=torch.bfloat16,
+    )
 
     tokenizer, text_encoder, scheduler = _load_common(ckpt)
 
@@ -163,13 +160,9 @@ def build_i2v_pipeline() -> DCVideoGenWanImageToVideoPipeline:
     ckpt = _ensure_videogen_ckpt()
     ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(ckpt / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
 
-    transformer = WanTransformer3DModel(
-        patch_size=(1, 1, 1), in_channels=68, out_channels=32,
-        image_dim=1280, added_kv_proj_dim=5120,
-    ).to(torch.bfloat16)
-    sd = torch.load(ckpt / 'dc_videogen_wan2.1_i2v_14b_720p.pt', map_location='cpu', weights_only=True)
-    missing, unexpected = transformer.load_state_dict(sd, strict=False)
-    print(f'  transformer: missing={len(missing)} unexpected={len(unexpected)}')
+    transformer = WanTransformer3DModel.from_pretrained(
+        str(ckpt), subfolder='transformer_i2v', torch_dtype=torch.bfloat16,
+    )
 
     tokenizer, text_encoder, scheduler = _load_common(ckpt)
 
