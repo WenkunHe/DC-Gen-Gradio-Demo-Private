@@ -1,24 +1,16 @@
----
-title: DC-Gen
-emoji: 🖼️
-colorFrom: blue
-colorTo: purple
-sdk: gradio
-sdk_version: "5.0"
-app_file: app.py
-pinned: false
----
-
 # DC-Gen Gradio Demo
 
-Interactive demo for **DC-Gen**, a high-resolution text-to-image generation framework that uses Deep Compression AutoEncoders (DC-AE) to enable native 1K and 4K image synthesis on top of FLUX.
+DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
 
 ## Models
 
-| Tab | Model | VAE | Resolution |
-|-----|-------|-----|------------|
-| DC-Gen 1K | `nvidia/DC-Gen-FLUX.1-Krea-Dev` (`DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K/`) | DC-AE-f32 | up to 1024×1024, flexible aspect ratios |
-| DC-Gen 4K | `nvidia/DC-Gen-FLUX.1-Krea-Dev` (`DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K/`) | DC-AE-f64 | 4096×4096 |
+| Tab | VAE | Resolution |
+|-----|-----|------------|
+| DC-Gen-FLUX-1K | DC-AE-f32c32 | up to 1024×1024, flexible aspect ratios |
+| DC-Gen-FLUX-4K | DC-AE-1.5-f64c128 | up to 4096×4096, flexible aspect ratios |
+| DC-Gen-Wan2.1-T2V-14B-720P | DC-AE-V-f32t4c32 | 720×1280 |
+| DC-Gen-Wan2.1-I2V-14B-720P | DC-AE-V-f32t4c32 | 720×1280 |
+| DC-Gen-Qwen-Image-Edit-Res1K | DC-AE-f32c32 | up to 1024×1024 |
 
 ## Local Setup
 

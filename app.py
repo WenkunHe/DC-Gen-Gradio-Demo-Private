@@ -937,8 +937,8 @@ with gr.Blocks(title='DC-Gen') as demo:
                 outputs=[out_i2v, timing_i2v, extended_prompt_i2v],
             )
 
-        with gr.Tab('DC-Gen-Qwen-Image-Edit'):
-            gr.Markdown('### DC-Gen-Qwen-Image-Edit — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
+        with gr.Tab('DC-Gen-Qwen-Image-Edit-Res1K'):
+            gr.Markdown('### DC-Gen-Qwen-Image-Edit-Res1K — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
             with gr.Row():
                 with gr.Column():
                     image_qe   = gr.Image(label='Input Image', type='filepath')
