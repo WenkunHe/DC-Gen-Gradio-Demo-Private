@@ -225,27 +225,45 @@ def load_pipeline_anyflow(subdir: str):
     return pipe
 
 
-print('Loading 1K-AnyFlow pipeline...')
-pipe_1k_anyflow = load_pipeline_anyflow(HUB_REPO_1K_ANYFLOW)
-print('Loading 1K pipeline...')
-pipe_1k = load_pipeline_standard(HUB_REPO_1K)
-print('Loading 4K pipeline...')
-pipe_4k = load_pipeline_standard(HUB_REPO_4K)
-print('All image pipelines loaded.')
+# ── All pipelines lazy-loaded on first use ────────────────────────────────────
+_pipe_1k_anyflow = None
+_pipe_1k          = None
+_pipe_4k          = None
+_pipe_t2v         = None
+_pipe_i2v         = None
 
-# ── Video pipelines (lazy-loaded on first use to save RAM) ────────────────────
-_pipe_t2v = None
-_pipe_i2v = None
+def _get_pipe_1k_anyflow():
+    global _pipe_1k_anyflow
+    if _pipe_1k_anyflow is None:
+        print('[Pipeline] Loading 1K-AnyFlow...')
+        _pipe_1k_anyflow = load_pipeline_anyflow(HUB_REPO_1K_ANYFLOW)
+    return _pipe_1k_anyflow
+
+def _get_pipe_1k():
+    global _pipe_1k
+    if _pipe_1k is None:
+        print('[Pipeline] Loading 1K...')
+        _pipe_1k = load_pipeline_standard(HUB_REPO_1K)
+    return _pipe_1k
+
+def _get_pipe_4k():
+    global _pipe_4k
+    if _pipe_4k is None:
+        print('[Pipeline] Loading 4K...')
+        _pipe_4k = load_pipeline_standard(HUB_REPO_4K)
+    return _pipe_4k
 
 def _get_t2v_pipe():
     global _pipe_t2v
     if _pipe_t2v is None:
+        print('[Pipeline] Loading T2V...')
         _pipe_t2v = build_t2v_pipeline()
     return _pipe_t2v
 
 def _get_i2v_pipe():
     global _pipe_i2v
     if _pipe_i2v is None:
+        print('[Pipeline] Loading I2V...')
         _pipe_i2v = build_i2v_pipeline()
     return _pipe_i2v
 
@@ -348,12 +366,12 @@ def _tlog(tlog, ev_q, msg):
 
 def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
-    pipe = pipe_1k_anyflow if use_anyflow == 'AnyFlow' else pipe_1k
     tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
     print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
+        pipe = _get_pipe_1k_anyflow() if use_anyflow == 'AnyFlow' else _get_pipe_1k()
         pipe.to('cuda')
         torch.cuda.synchronize()
         _t_load = time.perf_counter()
@@ -390,6 +408,7 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
+        pipe_4k = _get_pipe_4k()
         pipe_4k.to('cuda')
         torch.cuda.synchronize()
         _t_load = time.perf_counter()
