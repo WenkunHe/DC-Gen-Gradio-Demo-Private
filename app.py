@@ -36,13 +36,9 @@ from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline  # noqa:
 from pipeline_dc_qwen_edit import build_qwen_edit_pipeline  # noqa: E402
 
 INTRODUCTION = """
-# DC-Gen: High-Resolution Image Generation with DC-AE
+# DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
 
-DC-Gen is a high-resolution text-to-image generation framework built on FLUX, using Deep Compression
-AutoEncoders (DC-AE) to enable native 1K and 4K image synthesis on top of FLUX.
-
-- **1K model**: uses DC-AE-f32 latent space, supports flexible aspect ratios up to 1024×1024 equivalent
-- **4K model**: uses DC-AE-f64 latent space, generates 4096×4096 images natively
+DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
 
 ---
 > Run locally:
