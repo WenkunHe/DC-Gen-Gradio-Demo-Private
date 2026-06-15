@@ -91,8 +91,9 @@ EXAMPLES_1K = [
 ]
 
 EXAMPLES_4K = [
-    "A portrait of a beautiful young woman with long, voluminous, wavy blonde hair standing in Venice, with a narrow canal and classic Venetian buildings in the background. She wears a light blue blouse with a white lace collar, tucked into bright yellow pants.",
-    "Two figures paddle a canoe in a tranquil lake, surrounded by towering mountains and lush trees, with a waterfall cascading down rocky cliffs in the background. Soft light filters through the clouds, casting reflections on the water's surface.",
+    "A serene landscape where rolling green mountains cradle a tranquil lake, mist drifting along the slopes at dawn.",
+    "A well-groomed man with short brown hair and glasses smiling in a polished professional portrait, navy suit, soft lighting.",
+    "Anime style. A graceful girl with flowing silver hair and a blue ribbon, pastel sky, drifting butterflies.",
 ]
 
 
