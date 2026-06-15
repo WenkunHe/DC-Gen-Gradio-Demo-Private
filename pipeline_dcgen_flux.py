@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 import types
 from typing import Any, Callable, Dict, List, Optional, Union
 import math
@@ -686,6 +687,8 @@ class DCGen_FluxPipeline(
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 512,
         use_flux_2: bool = False,
+        timing_log: Optional[list] = None,
+        timing_event=None,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -789,6 +792,15 @@ class DCGen_FluxPipeline(
         height = height or self.default_sample_size * self.vae_scale_factor
         width = width or self.default_sample_size * self.vae_scale_factor
 
+        _t0 = time.perf_counter()
+
+        def _tlog(msg):
+            print(msg)
+            if timing_log is not None:
+                timing_log.append(msg)
+            if timing_event is not None:
+                timing_event.put('update')
+
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt,
@@ -856,6 +868,10 @@ class DCGen_FluxPipeline(
                 max_sequence_length=max_sequence_length,
                 lora_scale=lora_scale,
             )
+
+        torch.cuda.synchronize()
+        _t1 = time.perf_counter()
+        _tlog(f'[Timing] Condition encoding : {_t1 - _t0:.3f}s  (total {_t1 - _t0:.3f}s)')
 
         # 4. Prepare latent variables
         num_channels_latents = self.transformer.config.in_channels
@@ -1011,6 +1027,10 @@ class DCGen_FluxPipeline(
 
         self._current_timestep = None
 
+        torch.cuda.synchronize()
+        _t2 = time.perf_counter()
+        _tlog(f'[Timing] Denoising          : {_t2 - _t1:.3f}s  (total {_t2 - _t0:.3f}s)')
+
         if output_type == "latent":
             image = latents
         else:
@@ -1018,6 +1038,10 @@ class DCGen_FluxPipeline(
             latents = (latents / self.vae.config.scaling_factor)
             image = self.vae.decode(latents, return_dict=False)[0]
             image = self.image_processor.postprocess(image, output_type=output_type)
+
+        torch.cuda.synchronize()
+        _t3 = time.perf_counter()
+        _tlog(f'[Timing] VAE decoding       : {_t3 - _t2:.3f}s  (total {_t3 - _t0:.3f}s)')
 
         # Offload all models
         self.maybe_free_model_hooks()

@@ -286,18 +286,13 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
             )
-            if use_anyflow == 'AnyFlow':
-                kwargs['timing_log'] = tlog
-                kwargs['timing_event'] = ev_q
-            else:
+            kwargs['timing_log'] = tlog
+            kwargs['timing_event'] = ev_q
+            if use_anyflow != 'AnyFlow':
                 kwargs['use_flux_2'] = True
-            torch.cuda.synchronize()
-            _t_gen_start = time.perf_counter()
             out = pipe(prompt.strip(), **kwargs).images[0]
             torch.cuda.synchronize()
             _t_gen = time.perf_counter()
-            if use_anyflow != 'AnyFlow':
-                _tlog(tlog, ev_q, f'[Timing] Generation ({num_steps} steps): {_t_gen - _t_gen_start:.3f}s  (total {_t_gen - _t0:.3f}s)')
         pipe.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
@@ -321,8 +316,6 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
-            torch.cuda.synchronize()
-            _t_gen_start = time.perf_counter()
             out = pipe_4k(
                 prompt.strip(),
                 height=4096, width=4096,
@@ -330,10 +323,11 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
                 guidance_scale=guidance,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
                 use_flux_2=False,
+                timing_log=tlog,
+                timing_event=ev_q,
             ).images[0]
             torch.cuda.synchronize()
             _t_gen = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Generation ({num_steps} steps): {_t_gen - _t_gen_start:.3f}s  (total {_t_gen - _t0:.3f}s)')
         pipe_4k.to('cpu')
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
