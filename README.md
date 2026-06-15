@@ -23,4 +23,4 @@ pip install flash-attn --no-build-isolation --no-cache-dir
 HF_TOKEN=<your_hf_token> python app.py
 ```
 
-The first run downloads model weights from HuggingFace Hub (as a dataset repo) into `pretrained_models/`. A HuggingFace token with access to the `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K` and `nvidia/DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K` datasets is required.
+The first run downloads model weights from HuggingFace Hub into `pretrained_models/`. A HuggingFace token with access to `nvidia/` is required.
