@@ -288,6 +288,7 @@ _expander_t2i  = None   # T2I 1K + 4K  (Qwen2.5-14B, text-only)
 _expander_t2v  = None   # T2V           (Qwen2.5-14B, text-only)
 _expander_i2v  = None   # I2V           (QwenVL2.5-7B, image-conditioned)
 _expander_edit = None   # Image editing (QwenVL2.5-7B, image-conditioned)
+_translator    = None   # Translate any language → English (Qwen2.5-14B, text-only)
 
 def _get_expander_t2i():
     global _expander_t2i
@@ -321,7 +322,36 @@ def _get_expander_edit():
         _expander_edit = QwenPromptExpander(is_vl=True, is_edit=True)
     return _expander_edit
 
+def _get_translator():
+    global _translator
+    if _translator is None:
+        print('[Expander] Loading translator...')
+        from qwen_25_extend import QwenPromptExpander
+        _translator = QwenPromptExpander(is_t2i=True)
+    return _translator
+
+def _is_english(text):
+    for char in text:
+        if '一' <= char <= '鿿':   # CJK unified ideographs
+            return False
+        if '぀' <= char <= 'ヿ':   # Hiragana / Katakana
+            return False
+        if '가' <= char <= '힯':   # Hangul
+            return False
+    return True
+
 def _expand_prompt(expander, prompt, image=None):
+    # Step 1: translate to English if the prompt is not in English
+    if not _is_english(prompt):
+        from qwen_25_extend import TRANSLATE_TEXT_SYS_PROMPT
+        translator = _get_translator()
+        translator.to('cuda')
+        try:
+            prompt = translator.extend(prompt, TRANSLATE_TEXT_SYS_PROMPT).prompt
+        finally:
+            translator.to('cpu')
+            torch.cuda.empty_cache()
+    # Step 2: expand the (now-English) prompt
     expander.to('cuda')
     try:
         result = expander(prompt, tar_lang='en', image=image)

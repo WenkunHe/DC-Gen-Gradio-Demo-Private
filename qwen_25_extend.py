@@ -135,6 +135,13 @@ I2V_EN_SYS_PROMPT = (
     """Directly output the rewritten English text."""
 )
 
+TRANSLATE_TEXT_SYS_PROMPT = (
+    """You are a translation specialist. """
+    """Translate the user's input into English, preserving the original meaning faithfully. """
+    """No matter what language the user inputs, always output in English only. """
+    """Output the translated text directly without any additional commentary or explanation."""
+)
+
 TRANSLATE_EN_SYS_PROMPT = (
     """You are a translation specialist whose goal is to translate the Chinese prompts into high-quality English prompts by referring to the details of the user's input images, making them more complete and expressive while maintaining the original meaning. You need to integrate the content of the user's input image with the input prompt for the translation, strictly adhering to the formatting of the examples provided.\n"""
      """You are given a Chinese user command about image editing, translate it into English. The instruction MUST be aware of visible content (objects, colors, positions) and be closely related to the image content."""
