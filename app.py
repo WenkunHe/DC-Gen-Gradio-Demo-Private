@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 import queue
@@ -13,7 +14,9 @@ import uuid
 
 import gradio as gr
 import torch
+from diffusers.utils import export_to_video
 from huggingface_hub import snapshot_download
+from PIL import Image
 
 repo_root = pathlib.Path(__file__).resolve().parent
 output_dir = repo_root / 'results'
@@ -29,6 +32,7 @@ if not anyflow_src.exists():
 sys.path.insert(0, str(anyflow_src))
 
 from pipeline_dcgen_flux import DCGen_FluxPipeline  # noqa: E402
+from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline  # noqa: E402
 
 INTRODUCTION = """
 # DC-Gen: High-Resolution Image Generation with DC-AE
@@ -227,7 +231,49 @@ print('Loading 1K pipeline...')
 pipe_1k = load_pipeline_standard(HUB_REPO_1K)
 print('Loading 4K pipeline...')
 pipe_4k = load_pipeline_standard(HUB_REPO_4K)
-print('All pipelines loaded.')
+print('All image pipelines loaded.')
+
+# ── Video pipelines (lazy-loaded on first use to save RAM) ────────────────────
+_pipe_t2v = None
+_pipe_i2v = None
+
+def _get_t2v_pipe():
+    global _pipe_t2v
+    if _pipe_t2v is None:
+        _pipe_t2v = build_t2v_pipeline()
+    return _pipe_t2v
+
+def _get_i2v_pipe():
+    global _pipe_i2v
+    if _pipe_i2v is None:
+        _pipe_i2v = build_i2v_pipeline()
+    return _pipe_i2v
+
+VIDEO_RESOLUTIONS_T2V = {
+    '720p portrait  (720×1280)':  (720,  1280),
+    '720p landscape (1280×720)':  (1280,  720),
+    '480p portrait  (480×832)':   (480,   832),
+    '480p landscape (832×480)':   (832,   480),
+}
+
+VIDEO_NEGATIVE_PROMPT = (
+    'Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, '
+    'static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, '
+    'extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, '
+    'fused fingers, still picture, messy background, three legs, many people in the background, '
+    'walking backwards'
+)
+
+EXAMPLES_T2V = [
+    'Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. '
+    'The fluffy-furred feline gazes directly at the camera with a relaxed expression. '
+    'Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, '
+    'and a blue sky dotted with white clouds.',
+    'A lone astronaut walks across a vast red Martian landscape under a pale orange sky, '
+    'dust swirling gently at their feet. Distant mountains loom on the horizon.',
+]
+
+EXAMPLES_T2V_I2V = EXAMPLES_T2V[:1]
 
 
 def _stream_generation(run_fn):
@@ -341,6 +387,94 @@ def generate_4k(prompt: str, num_steps: int, guidance: float, seed: int):
     yield from _stream_generation(_run)
 
 
+def generate_t2v(prompt: str, resolution: str, num_frames: int, num_steps: int, guidance: float, seed: int):
+    h, w = VIDEO_RESOLUTIONS_T2V[resolution]
+    print(f'\n[Generate T2V] {h}x{w}, {num_frames} frames, {num_steps} steps, seed={int(seed)}')
+    _t0 = time.perf_counter()
+
+    def _run(tlog, ev_q, result):
+        pipe = _get_t2v_pipe()
+        pipe.to('cuda')
+        torch.cuda.synchronize()
+        _t_load = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
+        with torch.no_grad():
+            output = pipe(
+                prompt=prompt.strip(),
+                negative_prompt=VIDEO_NEGATIVE_PROMPT,
+                height=h, width=w,
+                num_frames=num_frames,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance,
+                generator=torch.Generator('cuda').manual_seed(int(seed)),
+            ).frames[0]
+        torch.cuda.synchronize()
+        _t_gen = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Generation         : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        path = output_dir / f't2v_{uuid.uuid4().hex[:8]}.mp4'
+        export_to_video(output, str(path), fps=16)
+        _t_save = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
+        result['path'] = str(path)
+
+    yield from _stream_generation(_run)
+
+
+def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: float, seed: int):
+    if image is None:
+        yield None, '[Error] Please upload an input image.'
+        return
+    print(f'\n[Generate I2V] {num_frames} frames, {num_steps} steps, seed={int(seed)}')
+    _t0 = time.perf_counter()
+
+    def _run(tlog, ev_q, result):
+        pipe = _get_i2v_pipe()
+
+        # Compute resolution from image, snapped to model's patch grid
+        img = Image.open(image) if isinstance(image, str) else Image.fromarray(image)
+        mod = pipe.vae_scale_factor_spatial * pipe.transformer.config.patch_size[1]
+        aspect = img.height / img.width
+        h = round(math.sqrt(720 * 1280 * aspect)) // mod * mod
+        w = round(math.sqrt(720 * 1280 / aspect)) // mod * mod
+        img = img.resize((w, h))
+
+        pipe.to('cuda')
+        torch.cuda.synchronize()
+        _t_load = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
+        _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
+        with torch.no_grad():
+            output = pipe(
+                image=img,
+                prompt=prompt.strip(),
+                negative_prompt=VIDEO_NEGATIVE_PROMPT,
+                height=h, width=w,
+                num_frames=num_frames,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance,
+                generator=torch.Generator('cuda').manual_seed(int(seed)),
+            ).frames[0]
+        torch.cuda.synchronize()
+        _t_gen = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Generation         : {_t_gen - _t_load:.3f}s  (total {_t_gen - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        path = output_dir / f'i2v_{uuid.uuid4().hex[:8]}.mp4'
+        export_to_video(output, str(path), fps=16)
+        _t_save = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
+        result['path'] = str(path)
+
+    yield from _stream_generation(_run)
+
+
 with gr.Blocks(title='DC-Gen') as demo:
     gr.Markdown(INTRODUCTION)
 
@@ -409,6 +543,70 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
             btn_4k.click(generate_4k, inputs=[prompt_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
+
+        with gr.Tab('DC-VideoGen T2V'):
+            gr.Markdown('### DC-VideoGen — Text-to-Video (Wan2.1 14B, DC-AE-V)')
+            with gr.Row():
+                with gr.Column():
+                    prompt_t2v = gr.Textbox(label='Prompt', lines=4)
+                    resolution_t2v = gr.Dropdown(
+                        list(VIDEO_RESOLUTIONS_T2V.keys()),
+                        value='720p portrait  (720×1280)',
+                        label='Resolution',
+                    )
+                    with gr.Row():
+                        frames_t2v = gr.Slider(17, 121, value=81, step=8, label='Frames')
+                        steps_t2v  = gr.Slider(1, 100, value=50, step=1, label='Steps')
+                    with gr.Row():
+                        guidance_t2v = gr.Slider(1.0, 10.0, value=5.0, step=0.1, label='Guidance Scale')
+                        seed_t2v     = gr.Number(42, label='Seed', precision=0)
+                with gr.Column():
+                    out_t2v    = gr.Video(label='Output', autoplay=True)
+                    timing_t2v = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    btn_t2v    = gr.Button('Generate', variant='primary')
+
+            gr.Markdown('### Examples')
+            for ex in EXAMPLES_T2V:
+                with gr.Row():
+                    gr.Textbox(value=ex, show_label=False, interactive=False, lines=2)
+                    use_btn = gr.Button('Use', scale=0, min_width=60)
+                    use_btn.click(lambda p=ex: p, outputs=[prompt_t2v])
+
+            btn_t2v.click(
+                generate_t2v,
+                inputs=[prompt_t2v, resolution_t2v, frames_t2v, steps_t2v, guidance_t2v, seed_t2v],
+                outputs=[out_t2v, timing_t2v],
+            )
+
+        with gr.Tab('DC-VideoGen I2V'):
+            gr.Markdown('### DC-VideoGen — Image-to-Video (Wan2.1 14B, DC-AE-V)')
+            with gr.Row():
+                with gr.Column():
+                    image_i2v  = gr.Image(label='Input Image', type='filepath')
+                    prompt_i2v = gr.Textbox(label='Prompt', lines=4)
+                    with gr.Row():
+                        frames_i2v = gr.Slider(17, 121, value=81, step=8, label='Frames')
+                        steps_i2v  = gr.Slider(1, 100, value=50, step=1, label='Steps')
+                    with gr.Row():
+                        guidance_i2v = gr.Slider(1.0, 10.0, value=5.0, step=0.1, label='Guidance Scale')
+                        seed_i2v     = gr.Number(42, label='Seed', precision=0)
+                with gr.Column():
+                    out_i2v    = gr.Video(label='Output', autoplay=True)
+                    timing_i2v = gr.Textbox(label='Timing', lines=6, interactive=False)
+                    btn_i2v    = gr.Button('Generate', variant='primary')
+
+            gr.Markdown('### Examples')
+            for ex in EXAMPLES_T2V_I2V:
+                with gr.Row():
+                    gr.Textbox(value=ex, show_label=False, interactive=False, lines=2)
+                    use_btn = gr.Button('Use', scale=0, min_width=60)
+                    use_btn.click(lambda p=ex: p, outputs=[prompt_i2v])
+
+            btn_i2v.click(
+                generate_i2v,
+                inputs=[image_i2v, prompt_i2v, frames_i2v, steps_i2v, guidance_i2v, seed_i2v],
+                outputs=[out_i2v, timing_i2v],
+            )
 
 demo.queue(default_concurrency_limit=1)
 
