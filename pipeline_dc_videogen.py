@@ -1,17 +1,37 @@
 """
 DC-VideoGen pipeline builders — T2V and I2V.
 Source code is bundled under dc_videogen/ (no external repo paths needed).
-Set FUSIONX and CKPT below to point to the model checkpoints on this machine.
+Checkpoints are auto-downloaded from HuggingFace on first use.
 """
 
+import os
 import pathlib
 
 import torch
 import torch.nn as nn
+from huggingface_hub import snapshot_download
 
-# ── checkpoint paths (edit these for each deployment) ─────────────────────────
-FUSIONX = pathlib.Path('/lustre/fs12/portfolios/nvr/projects/nvr_torontoai_videogen/fusionx/diffuser_checkpoints')
-CKPT    = pathlib.Path(__file__).resolve().parent / 'checkpoints' / 'dc_videogen'
+# ── HuggingFace repo ──────────────────────────────────────────────────────────
+HUB_REPO_VIDEOGEN = 'nvidia/DC-VideoGen-Wan2.1-14B'
+
+# ── local cache (mirrors pretrained_models/ pattern used for image pipelines) ─
+_repo_root = pathlib.Path(__file__).resolve().parent
+CKPT = _repo_root / 'pretrained_models' / 'dc_videogen'
+
+def _ensure_videogen_ckpt() -> pathlib.Path:
+    """Download checkpoints from HF if not already cached locally."""
+    sentinel = CKPT / 'dc-ae-v-f32t4c32-1.0-bf16.pt'
+    if not sentinel.exists():
+        print(f'[VideoGen] Downloading checkpoints from {HUB_REPO_VIDEOGEN} ...')
+        CKPT.mkdir(parents=True, exist_ok=True)
+        token = os.environ.get('HF_TOKEN')
+        snapshot_download(
+            repo_id=HUB_REPO_VIDEOGEN,
+            repo_type='model',
+            local_dir=str(CKPT),
+            token=token,
+        )
+    return CKPT
 
 from diffusers import UniPCMultistepScheduler, WanTransformer3DModel
 from transformers import CLIPImageProcessor, T5TokenizerFast, UMT5EncoderModel
@@ -98,11 +118,11 @@ class CLIPVisionWrapper(nn.Module):
 
 # ── shared text/scheduler loader ─────────────────────────────────────────────
 
-def _load_common():
-    tokenizer    = T5TokenizerFast.from_pretrained(str(FUSIONX), subfolder='tokenizer')
+def _load_common(ckpt: pathlib.Path):
+    tokenizer    = T5TokenizerFast.from_pretrained(str(ckpt), subfolder='tokenizer')
     text_encoder = UMT5EncoderModel.from_pretrained(
-        str(FUSIONX), subfolder='text_encoder', torch_dtype=torch.bfloat16)
-    scheduler    = UniPCMultistepScheduler.from_pretrained(str(FUSIONX), subfolder='scheduler')
+        str(ckpt), subfolder='text_encoder', torch_dtype=torch.bfloat16)
+    scheduler    = UniPCMultistepScheduler.from_pretrained(str(ckpt), subfolder='scheduler')
     return tokenizer, text_encoder, scheduler
 
 
@@ -110,16 +130,17 @@ def _load_common():
 
 def build_t2v_pipeline() -> DCVideoGenWanTextToVideoPipeline:
     print('[VideoGen] Building T2V pipeline...')
-    ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(CKPT / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
+    ckpt = _ensure_videogen_ckpt()
+    ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(ckpt / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
 
     transformer = WanTransformer3DModel(
         patch_size=(1, 1, 1), in_channels=32, out_channels=32,
     ).to(torch.bfloat16)
-    sd = torch.load(CKPT / 'dc_videogen_wan2.1_t2v_14b_720p.pt', map_location='cpu', weights_only=True)
+    sd = torch.load(ckpt / 'dc_videogen_wan2.1_t2v_14b_720p.pt', map_location='cpu', weights_only=True)
     missing, unexpected = transformer.load_state_dict(sd, strict=False)
     print(f'  transformer: missing={len(missing)} unexpected={len(unexpected)}')
 
-    tokenizer, text_encoder, scheduler = _load_common()
+    tokenizer, text_encoder, scheduler = _load_common(ckpt)
 
     pipe = DCVideoGenWanTextToVideoPipeline(
         tokenizer=tokenizer, text_encoder=text_encoder,
@@ -131,19 +152,20 @@ def build_t2v_pipeline() -> DCVideoGenWanTextToVideoPipeline:
 
 def build_i2v_pipeline() -> DCVideoGenWanImageToVideoPipeline:
     print('[VideoGen] Building I2V pipeline...')
-    ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(CKPT / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
+    ckpt = _ensure_videogen_ckpt()
+    ae = AEWrapper('dc-ae-v-f32t4c32-1.0-bf16', str(ckpt / 'dc-ae-v-f32t4c32-1.0-bf16.pt'))
 
     transformer = WanTransformer3DModel(
         patch_size=(1, 1, 1), in_channels=68, out_channels=32,
         image_dim=1280, added_kv_proj_dim=5120,
     ).to(torch.bfloat16)
-    sd = torch.load(CKPT / 'dc_videogen_wan2.1_i2v_14b_720p.pt', map_location='cpu', weights_only=True)
+    sd = torch.load(ckpt / 'dc_videogen_wan2.1_i2v_14b_720p.pt', map_location='cpu', weights_only=True)
     missing, unexpected = transformer.load_state_dict(sd, strict=False)
     print(f'  transformer: missing={len(missing)} unexpected={len(unexpected)}')
 
-    tokenizer, text_encoder, scheduler = _load_common()
+    tokenizer, text_encoder, scheduler = _load_common(ckpt)
 
-    clip_path = str(CKPT / 'models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth')
+    clip_path = str(ckpt / 'models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth')
     image_encoder = CLIPVisionWrapper(clip_path)  # fp32 — custom LayerNorm requires fp32 weights
 
     image_processor = CLIPImageProcessor(
