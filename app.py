@@ -557,8 +557,7 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
     yield from _stream_generation(_run)
 
 
-def generate_qwen_edit(image, prompt: str, negative_prompt: str,
-                       num_steps: int, cfg_scale: float, seed: int):
+def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, seed: int):
     if image is None:
         yield None, '[Error] Please upload an input image.'
         return
@@ -577,7 +576,7 @@ def generate_qwen_edit(image, prompt: str, negative_prompt: str,
             out = pipe(
                 image=img,
                 prompt=prompt.strip(),
-                negative_prompt=negative_prompt.strip() or ' ',
+                negative_prompt=' ',
                 true_cfg_scale=cfg_scale,
                 num_inference_steps=num_steps,
                 generator=torch.Generator('cuda').manual_seed(int(seed)),
@@ -746,7 +745,6 @@ with gr.Blocks(title='DC-Gen') as demo:
                     image_qe   = gr.Image(label='Input Image', type='filepath')
                     prompt_qe  = gr.Textbox(label='Edit Instruction', lines=3,
                                             placeholder='e.g. Change the background to outside')
-                    neg_qe     = gr.Textbox(label='Negative Prompt', lines=2, value=' ')
                     with gr.Row():
                         steps_qe   = gr.Slider(1, 100, value=50, step=1, label='Steps')
                         cfg_qe     = gr.Slider(1.0, 10.0, value=4.0, step=0.1, label='CFG Scale')
@@ -768,7 +766,7 @@ with gr.Blocks(title='DC-Gen') as demo:
 
             btn_qe.click(
                 generate_qwen_edit,
-                inputs=[image_qe, prompt_qe, neg_qe, steps_qe, cfg_qe, seed_qe],
+                inputs=[image_qe, prompt_qe, steps_qe, cfg_qe, seed_qe],
                 outputs=[out_qe, timing_qe],
             )
 
