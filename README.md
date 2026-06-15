@@ -6,11 +6,11 @@ DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, 
 
 | Tab | VAE | Resolution |
 |-----|-----|------------|
-| DC-Gen-FLUX-1K | DC-AE-f32c32 | up to 1024×1024, flexible aspect ratios |
-| DC-Gen-FLUX-4K | DC-AE-1.5-f64c128 | up to 4096×4096, flexible aspect ratios |
+| DC-Gen-FLUX-1K | DC-AE-f32c32 | 1K, flexible aspect ratios |
+| DC-Gen-FLUX-4K | DC-AE-1.5-f64c128 | 4K, flexible aspect ratios |
 | DC-Gen-Wan2.1-T2V-14B-720P | DC-AE-V-f32t4c32 | 720×1280 |
 | DC-Gen-Wan2.1-I2V-14B-720P | DC-AE-V-f32t4c32 | 720×1280 |
-| DC-Gen-Qwen-Image-Edit-Res1K | DC-AE-f32c32 | up to 1024×1024 |
+| DC-Gen-Qwen-Image-Edit-Res1K | DC-AE-f32c32 | 1K, flexible aspect ratios |
 
 ## Local Setup
 
