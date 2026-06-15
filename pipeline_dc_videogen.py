@@ -1,39 +1,24 @@
 """
-DC-VideoGen pipeline builders — T2V and I2V using local model checkpoints.
-Requires flash_attn (available in the dcae conda environment).
+DC-VideoGen pipeline builders — T2V and I2V.
+Source code is bundled under dc_videogen/ (no external repo paths needed).
+Set FUSIONX and CKPT below to point to the model checkpoints on this machine.
 """
 
 import pathlib
-import sys
 
 import torch
 import torch.nn as nn
 
-# ── paths (override via env vars) ─────────────────────────────────────────────
-import os as _os
-VIDEOGEN_ROOT = pathlib.Path(_os.environ.get(
-    'DCVIDEOGEN_ROOT',
-    '/home/hcai/workspace/code/dc-dev-videogen-fix/DC-VideoGen-Wan2.1-14B-Diffusers'))
-DC_DEV        = pathlib.Path(_os.environ.get(
-    'DC_DEV_ROOT',
-    '/home/hcai/workspace/code/dc-dev-videogen-fix/dc-dev'))
-FUSIONX       = pathlib.Path(_os.environ.get(
-    'DCVIDEOGEN_FUSIONX',
-    '/lustre/fs12/portfolios/nvr/projects/nvr_torontoai_videogen/fusionx/diffuser_checkpoints'))
-CKPT          = pathlib.Path(_os.environ.get(
-    'DCVIDEOGEN_CKPT',
-    str(VIDEOGEN_ROOT / 'checkpoints')))
+# ── checkpoint paths (edit these for each deployment) ─────────────────────────
+FUSIONX = pathlib.Path('/lustre/fs12/portfolios/nvr/projects/nvr_torontoai_videogen/fusionx/diffuser_checkpoints')
+CKPT    = pathlib.Path(__file__).resolve().parent / 'checkpoints' / 'dc_videogen'
 
-for _p in (str(VIDEOGEN_ROOT), str(DC_DEV)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+from diffusers import UniPCMultistepScheduler, WanTransformer3DModel
+from transformers import CLIPImageProcessor, T5TokenizerFast, UMT5EncoderModel
 
-from diffusers import UniPCMultistepScheduler, WanTransformer3DModel  # noqa: E402
-from transformers import CLIPImageProcessor, T5TokenizerFast, UMT5EncoderModel  # noqa: E402
-
-from dc_ae_v import DCAEV, dc_ae_v_f32t4_chunk_causal  # noqa: E402
-from pipeline_dc_videogen_wan_t2v import DCVideoGenWanTextToVideoPipeline  # noqa: E402
-from pipeline_dc_videogen_wan_i2v import DCVideoGenWanImageToVideoPipeline  # noqa: E402
+from dc_videogen.dc_ae_v import DCAEV, dc_ae_v_f32t4_chunk_causal
+from dc_videogen.pipeline_dc_videogen_wan_t2v import DCVideoGenWanTextToVideoPipeline
+from dc_videogen.pipeline_dc_videogen_wan_i2v import DCVideoGenWanImageToVideoPipeline
 
 
 # ── VAE wrapper ───────────────────────────────────────────────────────────────
@@ -79,11 +64,11 @@ class _CLIPOutput:
 
 
 class CLIPVisionWrapper(nn.Module):
-    """Wraps the dc-dev XLMRobertaCLIP ViT-H/14 to match diffusers encode_image interface."""
+    """Wraps the bundled XLMRobertaCLIP ViT-H/14 to match diffusers encode_image interface."""
 
     def __init__(self, checkpoint_path: str):
         super().__init__()
-        from dc_ai.videogencore.models.wan_blocks.clip import VisionTransformer
+        from dc_videogen.wan_blocks.clip import VisionTransformer
         self.vision = VisionTransformer(
             image_size=224, patch_size=14, dim=1280, mlp_ratio=4,
             out_dim=1024, num_heads=16, num_layers=32,
@@ -105,7 +90,7 @@ class CLIPVisionWrapper(nn.Module):
         return next(self.parameters()).device
 
     def forward(self, pixel_values, output_hidden_states=False, **kwargs):
-        # Keep in fp32 — custom LayerNorm in dc-dev VisionTransformer requires fp32 weights.
+        # Keep in fp32 — custom LayerNorm in VisionTransformer requires fp32 weights.
         pixel_values = pixel_values.to(dtype=next(self.vision.parameters()).dtype)
         features = self.vision(pixel_values)  # [B, 257, 1280]
         return _CLIPOutput(features)
@@ -158,8 +143,8 @@ def build_i2v_pipeline() -> DCVideoGenWanImageToVideoPipeline:
 
     tokenizer, text_encoder, scheduler = _load_common()
 
-    clip_path = str(DC_DEV / 'assets/checkpoints/i2v/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth')
-    image_encoder = CLIPVisionWrapper(clip_path)  # kept in fp32; custom LayerNorm requires fp32 weights
+    clip_path = str(CKPT / 'models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth')
+    image_encoder = CLIPVisionWrapper(clip_path)  # fp32 — custom LayerNorm requires fp32 weights
 
     image_processor = CLIPImageProcessor(
         image_mean=[0.48145466, 0.4578275, 0.40821073],
