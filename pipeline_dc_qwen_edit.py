@@ -13,6 +13,8 @@ import torch
 from huggingface_hub import snapshot_download
 
 HUB_REPO_QWEN_EDIT = 'nvidia/DC-Qwen-Image-Edit'
+# Path inside the HF repo where the actual model lives
+_HUB_MODEL_SUBDIR = pathlib.Path('upload') / 'DC-Qwen-Image-Edit' / 'DC-Gen-Qwen-Image-Edit'
 
 _repo_root = pathlib.Path(__file__).resolve().parent
 CKPT = _repo_root / 'pretrained_models' / 'dc_qwen_edit'
@@ -28,8 +30,6 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     print(f'[QwenEdit] Downloading from {HUB_REPO_QWEN_EDIT} ...')
     CKPT.mkdir(parents=True, exist_ok=True)
 
-    # Download with actual files (not symlinks) directly into CKPT.
-    # Files land at CKPT/upload/DC-Qwen-Image-Edit/DC-Gen-Qwen-Image-Edit/**
     snapshot_download(
         repo_id=HUB_REPO_QWEN_EDIT,
         repo_type='model',
@@ -38,29 +38,26 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
         token=token,
     )
 
-    # Find model_index.json under CKPT (walk follows real files, no symlink issues)
-    src = None
-    for root, dirs, files in os.walk(str(CKPT)):
-        if _SENTINEL in files:
-            src = pathlib.Path(root)
-            break
-
-    if src is None or src == CKPT:
-        # Already at the right place or not found — either way we're done
+    # Case 1: HF repo already reorganised — files landed at CKPT root.
+    if (CKPT / _SENTINEL).exists():
         return CKPT
 
-    print(f'[QwenEdit] Moving model from {src.relative_to(CKPT)} to root ...')
-    for item in src.iterdir():
+    # Case 2: files still nested at upload/.../DC-Gen-Qwen-Image-Edit/
+    nested = CKPT / _HUB_MODEL_SUBDIR
+    if not (nested / _SENTINEL).exists():
+        raise RuntimeError(
+            f'model_index.json not found at {CKPT} or {nested}. '
+            f'Top-level contents: {[p.name for p in CKPT.iterdir()]}'
+        )
+
+    print(f'[QwenEdit] Moving files from {_HUB_MODEL_SUBDIR} to CKPT root ...')
+    for item in nested.iterdir():
         dst = CKPT / item.name
         if dst.exists():
             shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
         shutil.move(str(item), str(dst))
 
-    # Remove leftover upload/ scaffold
-    upload_dir = CKPT / src.relative_to(CKPT).parts[0]
-    if upload_dir.exists() and upload_dir != CKPT:
-        shutil.rmtree(str(upload_dir))
-
+    shutil.rmtree(str(CKPT / 'upload'))
     return CKPT
 
 
