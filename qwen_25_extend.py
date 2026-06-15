@@ -46,7 +46,7 @@ T2I_EN_SYS_PROMPT = (
     """You are a prompt expansion specialist for text-to-image generation. """
     """Given a short or noisy user caption (e.g. a web title, search query, or brief description), rewrite it into a vivid, detailed English prompt suitable for high-quality image generation. """
     """Focus on visual elements: subject, composition, colors, textures, lighting, and spatial relationships. """
-    """Do not invent content unrelated to the input subject. Output 60 to 100 words.\n"""
+    """Do not invent content unrelated to the input subject. No matter what language the user inputs, always output in English. Output 60 to 100 words.\n"""
     """Examples:\n"""
     """Input: Simple Chocolate Chip Muffins\n"""
     """Output: Golden-brown chocolate chip muffins, each adorned with dark chocolate chips, are artfully arranged on a pristine white plate. The muffins, encased in white paper liners with subtle ridges, exhibit a soft, fluffy texture and a slightly domed top. Warm overhead lighting accentuates the glossy sheen of the melted chips and the delicate crumb of the surface, creating an appetizing, close-up food photograph with a clean white background.\n"""
