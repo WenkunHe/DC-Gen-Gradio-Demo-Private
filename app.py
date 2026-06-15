@@ -60,6 +60,8 @@ HUB_REPO          = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
 HUB_REPO_1K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
 HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
 HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
+HUB_REPO_4K_ANYFLOW = 'kimi000/Anyflow-dc-gen-4K'
+_HF_TOKEN_4K_ANYFLOW = os.environ.get('HF_TOKEN_4K_ANYFLOW') or os.environ.get('HF_TOKEN')
 
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
@@ -95,6 +97,14 @@ EXAMPLES_4K = [
 ]
 
 
+def _download_full_repo(repo_id: str, local_name: str, token: str | None = None) -> pathlib.Path:
+    local_dir = repo_root / 'pretrained_models' / local_name
+    if not (local_dir / 'model_index.json').exists():
+        snapshot_download(repo_id=repo_id, repo_type='model',
+                          local_dir=str(local_dir), token=token)
+    return local_dir
+
+
 def _download_subdir(subdir: str) -> pathlib.Path:
     local_dir = repo_root / 'pretrained_models' / subdir
     if not (local_dir / 'model_index.json').exists():
@@ -121,8 +131,8 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
     return pipe
 
 
-def load_pipeline_anyflow(subdir: str):
-    local_dir = _download_subdir(subdir)
+def load_pipeline_anyflow(subdir_or_dir):
+    local_dir = subdir_or_dir if isinstance(subdir_or_dir, pathlib.Path) else _download_subdir(subdir_or_dir)
     # Patch the cloned AnyFlow with the correct DC-Gen custom versions bundled in
     # this repo under custom_code/.  Do NOT rely on the checkpoint's custom_code/
     # subdirectory — snapshot_download with allow_patterns='{subdir}/*' only
@@ -237,8 +247,9 @@ def load_pipeline_anyflow(subdir: str):
 
 
 # ── All pipelines lazy-loaded on first use ────────────────────────────────────
-_pipe_1k_anyflow = None
+_pipe_1k_anyflow  = None
 _pipe_1k          = None
+_pipe_4k_anyflow  = None
 _pipe_4k          = None
 _pipe_t2v         = None
 _pipe_i2v         = None
@@ -256,6 +267,14 @@ def _get_pipe_1k():
         print('[Pipeline] Loading 1K...')
         _pipe_1k = load_pipeline_standard(HUB_REPO_1K)
     return _pipe_1k
+
+def _get_pipe_4k_anyflow():
+    global _pipe_4k_anyflow
+    if _pipe_4k_anyflow is None:
+        print('[Pipeline] Loading 4K-AnyFlow...')
+        local_dir = _download_full_repo(HUB_REPO_4K_ANYFLOW, 'Anyflow-dc-gen-4K', _HF_TOKEN_4K_ANYFLOW)
+        _pipe_4k_anyflow = load_pipeline_anyflow(local_dir)
+    return _pipe_4k_anyflow
 
 def _get_pipe_4k():
     global _pipe_4k
@@ -432,13 +451,17 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     yield from _stream_generation(_run)
 
 
-def generate_4k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
+def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int):
     h, w = ASPECT_RATIOS_4K[aspect_ratio]
-    print(f'\n[Generate 4K] {h}x{w}, {num_steps} steps, seed={int(seed)}')
+    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
+    print(f'\n[Generate 4K-{tag.upper()}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
-        pipe_4k = _get_pipe_4k()
+        if use_anyflow == 'AnyFlow':
+            pipe_4k = _get_pipe_4k_anyflow()
+        else:
+            pipe_4k = _get_pipe_4k()
         pipe_4k.to('cuda')
         torch.cuda.synchronize()
         _t_load = time.perf_counter()
@@ -460,7 +483,7 @@ def generate_4k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float,
         torch.cuda.empty_cache()
         _t_offload = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
-        path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
+        path = output_dir / f'4k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
@@ -469,8 +492,8 @@ def generate_4k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float,
     yield from _stream_generation(_run)
 
 
-def generate_t2v(prompt: str, resolution: str, num_frames: int, num_steps: int, guidance: float, seed: int):
-    h, w = VIDEO_RESOLUTIONS_T2V[resolution]
+def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, seed: int):
+    h, w = 720, 1280
     print(f'\n[Generate T2V] {h}x{w}, {num_frames} frames, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
@@ -724,6 +747,12 @@ with gr.Blocks(title='DC-Gen') as demo:
             with gr.Row():
                 with gr.Column():
                     prompt_4k = gr.Textbox(label='Prompt', lines=4)
+                    model_toggle_4k = gr.Radio(
+                        choices=['AnyFlow', 'Standard'],
+                        value='Standard',
+                        label='Model',
+                        info='AnyFlow: on-policy distilled model (faster, any-step); Standard: base 4K model',
+                    )
                     aspect_ratio_4k = gr.Dropdown(
                         list(ASPECT_RATIOS_4K.keys()),
                         value='1:1  (4096×4096)',
@@ -733,6 +762,10 @@ with gr.Blocks(title='DC-Gen') as demo:
                         steps_4k = gr.Slider(1, 50, value=20, step=1, label='Steps')
                         guidance_4k = gr.Slider(1.0, 10.0, value=3.5, step=0.1, label='Guidance Scale')
                     seed_4k = gr.Number(0, label='Seed', precision=0)
+                    model_toggle_4k.change(
+                        lambda m: gr.update(value=4 if m == 'AnyFlow' else 20),
+                        inputs=[model_toggle_4k], outputs=[steps_4k],
+                    )
                 with gr.Column():
                     out_4k = gr.Image(label='Output', type='filepath')
                     timing_4k = gr.Textbox(label='Timing', lines=6, interactive=False)
@@ -745,18 +778,13 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
-            btn_4k.click(generate_4k, inputs=[prompt_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
+            btn_4k.click(generate_4k, inputs=[prompt_4k, model_toggle_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k], outputs=[out_4k, timing_4k])
 
         with gr.Tab('DC-Gen-Wan2.1-T2V-14B-720P'):
             gr.Markdown('### DC-VideoGen — Text-to-Video (Wan2.1 14B, DC-AE-V)')
             with gr.Row():
                 with gr.Column():
                     prompt_t2v = gr.Textbox(label='Prompt', lines=4)
-                    resolution_t2v = gr.Dropdown(
-                        list(VIDEO_RESOLUTIONS_T2V.keys()),
-                        value='720p portrait  (720×1280)',
-                        label='Resolution',
-                    )
                     with gr.Row():
                         frames_t2v = gr.Slider(17, 121, value=81, step=8, label='Frames')
                         steps_t2v  = gr.Slider(1, 100, value=50, step=1, label='Steps')
@@ -777,7 +805,7 @@ with gr.Blocks(title='DC-Gen') as demo:
 
             btn_t2v.click(
                 generate_t2v,
-                inputs=[prompt_t2v, resolution_t2v, frames_t2v, steps_t2v, guidance_t2v, seed_t2v],
+                inputs=[prompt_t2v, frames_t2v, steps_t2v, guidance_t2v, seed_t2v],
                 outputs=[out_t2v, timing_t2v],
             )
 
@@ -814,8 +842,8 @@ with gr.Blocks(title='DC-Gen') as demo:
                 outputs=[out_i2v, timing_i2v],
             )
 
-        with gr.Tab('DC-Qwen-Image-Edit'):
-            gr.Markdown('### DC-Qwen-Image-Edit — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
+        with gr.Tab('DC-Gen-Qwen-Image-Edit'):
+            gr.Markdown('### DC-Gen-Qwen-Image-Edit — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
             with gr.Row():
                 with gr.Column():
                     image_qe   = gr.Image(label='Input Image', type='filepath')

@@ -16,7 +16,7 @@ HUB_REPO_VIDEOGEN = 'nvidia/DC-VideoGen-Wan2.1-14B'
 
 # ── local cache (mirrors pretrained_models/ pattern used for image pipelines) ─
 _repo_root = pathlib.Path(__file__).resolve().parent
-CKPT = _repo_root / 'pretrained_models' / 'dc_videogen'
+CKPT = _repo_root / 'pretrained_models' / 'DC-Gen-Wan2.1-14B-720P'
 
 _REQUIRED_CKPT_PATHS = [
     'dc-ae-v-f32t4c32-1.0-bf16.pt',
