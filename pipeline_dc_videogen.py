@@ -18,11 +18,19 @@ HUB_REPO_VIDEOGEN = 'nvidia/DC-VideoGen-Wan2.1-14B'
 _repo_root = pathlib.Path(__file__).resolve().parent
 CKPT = _repo_root / 'pretrained_models' / 'dc_videogen'
 
+_REQUIRED_CKPT_FILES = [
+    'dc-ae-v-f32t4c32-1.0-bf16.pt',
+    'dc_videogen_wan2.1_t2v_14b_720p.pt',
+    'dc_videogen_wan2.1_i2v_14b_720p.pt',
+    'models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth',
+]
+
 def _ensure_videogen_ckpt() -> pathlib.Path:
-    """Download checkpoints from HF if not already cached locally."""
-    sentinel = CKPT / 'dc-ae-v-f32t4c32-1.0-bf16.pt'
-    if not sentinel.exists():
-        print(f'[VideoGen] Downloading checkpoints from {HUB_REPO_VIDEOGEN} ...')
+    """Download checkpoints from HF if any required file is missing."""
+    if not all((CKPT / f).exists() for f in _REQUIRED_CKPT_FILES):
+        missing = [f for f in _REQUIRED_CKPT_FILES if not (CKPT / f).exists()]
+        print(f'[VideoGen] Missing checkpoints: {missing}')
+        print(f'[VideoGen] Downloading from {HUB_REPO_VIDEOGEN} ...')
         CKPT.mkdir(parents=True, exist_ok=True)
         token = os.environ.get('HF_TOKEN')
         snapshot_download(
