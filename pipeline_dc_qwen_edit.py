@@ -9,6 +9,7 @@ import os
 import pathlib
 import shutil
 import sys
+import tempfile
 import torch
 from huggingface_hub import snapshot_download
 
@@ -30,7 +31,6 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     CKPT.mkdir(parents=True, exist_ok=True)
 
     # Download all files into a staging directory first
-    import tempfile
     staging = pathlib.Path(tempfile.mkdtemp(prefix='dc_qwen_dl_'))
     try:
         snapshot_download(
@@ -40,11 +40,14 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
             token=token,
         )
 
-        # Find model_index.json wherever snapshot_download placed it
-        hits = list(staging.rglob('model_index.json'))
-        if not hits:
+        # Find model_index.json (follow symlinks; newer hf_hub uses symlinked dirs)
+        src = None
+        for root, dirs, files in os.walk(str(staging), followlinks=True):
+            if 'model_index.json' in files:
+                src = pathlib.Path(root)
+                break
+        if src is None:
             raise RuntimeError(f'model_index.json not found after download in {staging}')
-        src = hits[0].parent
         print(f'[QwenEdit] Found model at {src.relative_to(staging)}')
 
         # Move contents of that directory directly into CKPT
