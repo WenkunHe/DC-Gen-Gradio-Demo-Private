@@ -26,6 +26,14 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     if (CKPT / _SENTINEL).exists():
         return CKPT
 
+    # Previous failed attempts may have left garbage in CKPT that confuses
+    # snapshot_download into skipping files it thinks are already present.
+    # The actual file data lives in the global HF cache, so wiping CKPT and
+    # re-running snapshot_download just re-copies from cache (fast).
+    if CKPT.exists():
+        print(f'[QwenEdit] Removing incomplete download at {CKPT} ...')
+        shutil.rmtree(str(CKPT))
+
     token = os.environ.get('HF_TOKEN')
     print(f'[QwenEdit] Downloading from {HUB_REPO_QWEN_EDIT} ...')
     CKPT.mkdir(parents=True, exist_ok=True)
