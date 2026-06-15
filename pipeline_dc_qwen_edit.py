@@ -19,17 +19,26 @@ _HUB_MODEL_SUBDIR = pathlib.Path('upload') / 'DC-Qwen-Image-Edit' / 'DC-Gen-Qwen
 _repo_root = pathlib.Path(__file__).resolve().parent
 CKPT = _repo_root / 'pretrained_models' / 'dc_qwen_edit'
 
-_SENTINEL = 'model_index.json'
+# All of these must exist for the checkpoint to be considered complete.
+_REQUIRED = [
+    'model_index.json',
+    'scheduler/scheduler_config.json',
+    'transformer/config.json',
+    'vae/config.json',
+]
+
+
+def _ckpt_complete() -> bool:
+    return all((CKPT / f).exists() for f in _REQUIRED)
 
 
 def _ensure_qwen_edit_ckpt() -> pathlib.Path:
-    if (CKPT / _SENTINEL).exists():
+    if _ckpt_complete():
         return CKPT
 
-    # Previous failed attempts may have left garbage in CKPT that confuses
-    # snapshot_download into skipping files it thinks are already present.
-    # The actual file data lives in the global HF cache, so wiping CKPT and
-    # re-running snapshot_download just re-copies from cache (fast).
+    # Previous failed/partial downloads leave garbage that confuses
+    # snapshot_download into thinking files are already present.
+    # Wiping CKPT forces a clean re-copy from the global HF cache (fast).
     if CKPT.exists():
         print(f'[QwenEdit] Removing incomplete download at {CKPT} ...')
         shutil.rmtree(str(CKPT))
@@ -47,7 +56,7 @@ def _ensure_qwen_edit_ckpt() -> pathlib.Path:
     )
 
     # Case 1: HF repo already reorganised — files landed at CKPT root.
-    if (CKPT / _SENTINEL).exists():
+    if _ckpt_complete():
         return CKPT
 
     # Case 2: files still nested at upload/.../DC-Gen-Qwen-Image-Edit/
