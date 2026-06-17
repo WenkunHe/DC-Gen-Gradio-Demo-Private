@@ -909,7 +909,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             btn_4k.click(generate_4k, inputs=[prompt_4k, model_toggle_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k, expand_4k], outputs=[out_4k, timing_4k, extended_prompt_4k])
 
         with gr.Tab('DC-Gen-Wan2.1-T2V-14B-720P'):
-            gr.Markdown('### DC-VideoGen — Text-to-Video (Wan2.1 14B, DC-AE-V)')
+            gr.Markdown('### DC-Gen-Wan2.1-14B - Text-to-Video (DC-AE-V-f32t4c32)')
             with gr.Row():
                 with gr.Column():
                     prompt_t2v = gr.Textbox(label='Prompt', lines=4)
@@ -940,7 +940,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             )
 
         with gr.Tab('DC-Gen-Wan2.1-I2V-14B-720P'):
-            gr.Markdown('### DC-VideoGen — Image-to-Video (Wan2.1 14B, DC-AE-V)')
+            gr.Markdown('### DC-Gen-Wan2.1-14B - Image-to-Video (DC-AE-V-f32t4c32)')
             with gr.Row():
                 with gr.Column():
                     image_i2v  = gr.Image(label='Input Image', type='filepath')
@@ -975,7 +975,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             )
 
         with gr.Tab('DC-Gen-Qwen-Image-Edit-1K'):
-            gr.Markdown('### DC-Gen-Qwen-Image-Edit-1K — Instruction-based Image Editing (Qwen2.5-VL-7B + DC-AE)')
+            gr.Markdown('### DC-Gen-Qwen-Image-Edit-1K - Instruction-based Image Editing (DC-AE-f32c32)')
             with gr.Row():
                 with gr.Column():
                     image_qe   = gr.Image(label='Input Image', type='filepath')
