@@ -455,7 +455,7 @@ def _stream_generation(run_fn):
         msg = ev_q.get()
         if msg == 'done':
             break
-        yield None, '\n'.join(tlog), result['extended_prompt']
+        yield result['path'], '\n'.join(tlog), result['extended_prompt']
 
     if result['error']:
         raise result['error']
@@ -500,15 +500,15 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             out = pipe(prompt.strip(), **kwargs).images[0]
             torch.cuda.synchronize()
             _t_gen = time.perf_counter()
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_gen:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
+        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -577,15 +577,15 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 ).images[0]
                 torch.cuda.synchronize()
                 _t_vae = time.perf_counter()
-        pipe_4k.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'4k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
+        _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
+        pipe_4k.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -643,15 +643,15 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f't2v_{uuid.uuid4().hex[:8]}.mp4'
         export_to_video(output[0], str(path), fps=16)
         _t_save = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
+        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -722,15 +722,15 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'i2v_{uuid.uuid4().hex[:8]}.mp4'
         export_to_video(output[0], str(path), fps=16)
         _t_save = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
+        _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -800,15 +800,15 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_vae:.3f}s  (total {_t_offload - _t0:.3f}s)')
         path = output_dir / f'qwen_edit_{uuid.uuid4().hex[:8]}.png'
         out_img.save(str(path))
         _t_save = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] Storing             : {_t_save - _t_offload:.3f}s  (total {_t_save - _t0:.3f}s)')
         result['path'] = str(path)
+        _tlog(tlog, ev_q, f'[Timing] Storing             : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
+        pipe.to('cpu')
+        torch.cuda.empty_cache()
+        _t_offload = time.perf_counter()
+        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
