@@ -818,7 +818,7 @@ with gr.Blocks(title='DC-Gen') as demo:
 
     with gr.Tabs():
         with gr.Tab('DC-Gen-FLUX-1K'):
-            gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 1K Generation (DC-AE-f32)')
+            gr.Markdown('### DC-Gen-FLUX - 1K Generation (DC-AE-f32c32)')
             with gr.Row():
                 with gr.Column():
                     prompt_1k = gr.Textbox(label='Prompt', lines=4)
@@ -869,7 +869,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             )
 
         with gr.Tab('DC-Gen-FLUX-4K'):
-            gr.Markdown('### DC-Gen-FLUX.1-Krea-Dev — 4K Generation (DC-AE-f64)')
+            gr.Markdown('### DC-Gen-FLUX - 4K Generation (DC-AE-1.5-f64c128)')
             with gr.Row():
                 with gr.Column():
                     prompt_4k = gr.Textbox(label='Prompt', lines=4)
