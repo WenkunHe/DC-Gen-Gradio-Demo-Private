@@ -975,7 +975,7 @@ with gr.Blocks(title='DC-Gen') as demo:
             )
 
         with gr.Tab('DC-Gen-Qwen-Image-Edit-1K'):
-            gr.Markdown('### DC-Gen-Qwen-Image-Edit-1K - Instruction-based Image Editing (DC-AE-f32c32)')
+            gr.Markdown('### DC-Gen-Qwen-Image-Edit - Instruction-based Image Editing (DC-AE-f32c32)')
             with gr.Row():
                 with gr.Column():
                     image_qe   = gr.Image(label='Input Image', type='filepath')
