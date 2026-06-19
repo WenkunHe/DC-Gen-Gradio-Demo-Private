@@ -19,12 +19,12 @@ git clone git@github.com:WenkunHe/DC-Gen-Gradio-Demo-Private.git
 cd DC-Gen-Gradio-Demo-Private
 conda create -n dcgen python=3.10 && conda activate dcgen
 pip install -r requirements.txt
-pip install flash-attn --no-build-isolation --no-cache-dir
+
 # Single GPU: lazy load/unload between requests
 HF_TOKEN=<your_hf_token> python app.py
 
 # 6 GPUs: load all models persistently, one per GPU
-HF_TOKEN=<your_hf_token> CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python app.py
+HF_TOKEN=<your_hf_token> python app.py --load_before_generation
 ```
 
 The first run downloads model weights from HuggingFace Hub into `pretrained_models/`. A HuggingFace token with access to `nvidia/` is required.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import pathlib
@@ -47,11 +48,15 @@ HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
 HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 HUB_REPO_4K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K-Anyflow'
 
+# ── CLI args ──────────────────────────────────────────────────────────────────
+_parser = argparse.ArgumentParser(add_help=True)
+_parser.add_argument('--load_before_generation', action='store_true',
+                     help='Load all models before serving requests (requires ≥6 GPUs).')
+_args, _ = _parser.parse_known_args()
+
 # ── Multi-GPU detection ───────────────────────────────────────────────────────
-# If ≥6 GPUs are available, load all 6 models persistently (one per GPU).
-# Otherwise fall back to single-GPU lazy load/unload.
 _NUM_GPUS = torch.cuda.device_count()
-MULTI_GPU = _NUM_GPUS >= 6
+MULTI_GPU = _args.load_before_generation and _NUM_GPUS >= 6
 if MULTI_GPU:
     print(f'[Multi-GPU] {_NUM_GPUS} GPUs detected — models will be loaded persistently.')
     _DEV_EXP  = 'cuda:0'   # prompt expander  (Qwen2.5-14B)
@@ -60,8 +65,10 @@ if MULTI_GPU:
     _DEV_T2V  = 'cuda:3'   # Wan2.1 T2V
     _DEV_I2V  = 'cuda:4'   # Wan2.1 I2V
     _DEV_EDIT = 'cuda:5'   # Qwen-Image-Edit
+elif _args.load_before_generation:
+    print(f'[Warning] --load_before_generation requires ≥6 GPUs; only {_NUM_GPUS} found — using lazy load/unload.')
+    _DEV_EXP = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
 else:
-    print(f'[Single-GPU] {_NUM_GPUS} GPU(s) detected — using lazy load/unload.')
     _DEV_EXP = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
 
 ASPECT_RATIOS_1K = {
