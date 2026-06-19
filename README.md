@@ -23,7 +23,7 @@ pip install -r requirements.txt
 # Single GPU: lazy load/unload between requests
 HF_TOKEN=<your_hf_token> python app.py
 
-# 6 GPUs: load all models persistently, one per GPU
+# 7 GPUs: load all models persistently, one per GPU
 HF_TOKEN=<your_hf_token> python app.py --load_before_generation
 ```
 

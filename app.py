@@ -51,25 +51,27 @@ HUB_REPO_4K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K-Anyflow'
 # ── CLI args ──────────────────────────────────────────────────────────────────
 _parser = argparse.ArgumentParser(add_help=True)
 _parser.add_argument('--load_before_generation', action='store_true',
-                     help='Load all models before serving requests (requires ≥6 GPUs).')
+                     help='Load all models before serving requests (requires ≥7 GPUs).')
 _args, _ = _parser.parse_known_args()
 
 # ── Multi-GPU detection ───────────────────────────────────────────────────────
+# 7 GPUs required: 2 expander GPUs (text vs VL) + 5 pipeline GPUs
 _NUM_GPUS = torch.cuda.device_count()
-MULTI_GPU = _args.load_before_generation and _NUM_GPUS >= 6
+MULTI_GPU = _args.load_before_generation and _NUM_GPUS >= 7
 if MULTI_GPU:
     print(f'[Multi-GPU] {_NUM_GPUS} GPUs detected — models will be loaded persistently.')
-    _DEV_EXP  = 'cuda:0'   # prompt expander  (Qwen2.5-14B)
-    _DEV_1K   = 'cuda:1'   # DC-Gen-FLUX 1K
-    _DEV_4K   = 'cuda:2'   # DC-Gen-FLUX 4K
-    _DEV_T2V  = 'cuda:3'   # Wan2.1 T2V
-    _DEV_I2V  = 'cuda:4'   # Wan2.1 I2V
-    _DEV_EDIT = 'cuda:5'   # Qwen-Image-Edit
+    _DEV_EXP    = 'cuda:0'   # text expanders + translator (Qwen2.5-14B)
+    _DEV_EXP_VL = 'cuda:1'   # VL expanders: I2V + Edit (QwenVL2.5-7B)
+    _DEV_1K     = 'cuda:2'   # DC-Gen-FLUX 1K
+    _DEV_4K     = 'cuda:3'   # DC-Gen-FLUX 4K
+    _DEV_T2V    = 'cuda:4'   # Wan2.1 T2V
+    _DEV_I2V    = 'cuda:5'   # Wan2.1 I2V
+    _DEV_EDIT   = 'cuda:6'   # Qwen-Image-Edit
 elif _args.load_before_generation:
-    print(f'[Warning] --load_before_generation requires ≥6 GPUs; only {_NUM_GPUS} found — using lazy load/unload.')
-    _DEV_EXP = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
+    print(f'[Warning] --load_before_generation requires ≥7 GPUs; only {_NUM_GPUS} found — using lazy load/unload.')
+    _DEV_EXP = _DEV_EXP_VL = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
 else:
-    _DEV_EXP = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
+    _DEV_EXP = _DEV_EXP_VL = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
 
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
@@ -351,7 +353,7 @@ def _get_expander_i2v():
         from qwen_25_extend import QwenPromptExpander
         _expander_i2v = QwenPromptExpander(is_i2v=True)
         if MULTI_GPU:
-            _expander_i2v.to(_DEV_EXP)
+            _expander_i2v.to(_DEV_EXP_VL)
     return _expander_i2v
 
 def _get_expander_edit():
@@ -361,7 +363,7 @@ def _get_expander_edit():
         from qwen_25_extend import QwenPromptExpander
         _expander_edit = QwenPromptExpander(is_vl=True, is_edit=True)
         if MULTI_GPU:
-            _expander_edit.to(_DEV_EXP)
+            _expander_edit.to(_DEV_EXP_VL)
     return _expander_edit
 
 def _get_translator():
@@ -376,16 +378,15 @@ def _get_translator():
 
 
 def _preload_all_models():
-    """Load all 6 models to their dedicated GPUs at startup (multi-GPU mode only)."""
+    """Load all models to their dedicated GPUs at startup (multi-GPU mode only)."""
     print('[Multi-GPU] Pre-loading all models...')
     _get_pipe_1k()
     _get_pipe_4k()
     _get_t2v_pipe()
     _get_i2v_pipe()
     _get_qwen_edit_pipe()
-    # Expander uses Qwen2.5-14B; load t2i variant (covers t2i, t2v, translation)
-    from qwen_25_extend import QwenPromptExpander
-    _get_expander_t2i()
+    _get_expander_t2i()    # Qwen2.5-14B → cuda:0
+    _get_expander_i2v()    # QwenVL2.5-7B → cuda:1
     print('[Multi-GPU] All models loaded.')
 
 def _is_english(text):
