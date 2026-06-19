@@ -47,6 +47,23 @@ HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
 HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 HUB_REPO_4K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K-Anyflow'
 
+# ── Multi-GPU detection ───────────────────────────────────────────────────────
+# If ≥6 GPUs are available, load all 6 models persistently (one per GPU).
+# Otherwise fall back to single-GPU lazy load/unload.
+_NUM_GPUS = torch.cuda.device_count()
+MULTI_GPU = _NUM_GPUS >= 6
+if MULTI_GPU:
+    print(f'[Multi-GPU] {_NUM_GPUS} GPUs detected — models will be loaded persistently.')
+    _DEV_EXP  = 'cuda:0'   # prompt expander  (Qwen2.5-14B)
+    _DEV_1K   = 'cuda:1'   # DC-Gen-FLUX 1K
+    _DEV_4K   = 'cuda:2'   # DC-Gen-FLUX 4K
+    _DEV_T2V  = 'cuda:3'   # Wan2.1 T2V
+    _DEV_I2V  = 'cuda:4'   # Wan2.1 I2V
+    _DEV_EDIT = 'cuda:5'   # Qwen-Image-Edit
+else:
+    print(f'[Single-GPU] {_NUM_GPUS} GPU(s) detected — using lazy load/unload.')
+    _DEV_EXP = _DEV_1K = _DEV_4K = _DEV_T2V = _DEV_I2V = _DEV_EDIT = 'cuda'
+
 ASPECT_RATIOS_1K = {
     '1:1  (1024×1024)': (1024, 1024),
     '9:7  (1152×896)':  (1152, 896),
@@ -243,6 +260,8 @@ def _get_pipe_1k():
     if _pipe_1k is None:
         print('[Pipeline] Loading 1K...')
         _pipe_1k = load_pipeline_standard(HUB_REPO_1K)
+        if MULTI_GPU:
+            _pipe_1k.to(_DEV_1K)
     return _pipe_1k
 
 def _get_pipe_4k_anyflow():
@@ -257,6 +276,8 @@ def _get_pipe_4k():
     if _pipe_4k is None:
         print('[Pipeline] Loading 4K...')
         _pipe_4k = load_pipeline_standard(HUB_REPO_4K)
+        if MULTI_GPU:
+            _pipe_4k.to(_DEV_4K)
     return _pipe_4k
 
 def _get_t2v_pipe():
@@ -264,6 +285,8 @@ def _get_t2v_pipe():
     if _pipe_t2v is None:
         print('[Pipeline] Loading T2V...')
         _pipe_t2v = build_t2v_pipeline()
+        if MULTI_GPU:
+            _pipe_t2v.to(_DEV_T2V)
     return _pipe_t2v
 
 def _get_i2v_pipe():
@@ -271,6 +294,8 @@ def _get_i2v_pipe():
     if _pipe_i2v is None:
         print('[Pipeline] Loading I2V...')
         _pipe_i2v = build_i2v_pipeline()
+        if MULTI_GPU:
+            _pipe_i2v.to(_DEV_I2V)
     return _pipe_i2v
 
 _pipe_qwen_edit = None
@@ -280,6 +305,8 @@ def _get_qwen_edit_pipe():
     if _pipe_qwen_edit is None:
         print('[Pipeline] Loading DC-Qwen-Image-Edit...')
         _pipe_qwen_edit = build_qwen_edit_pipeline()
+        if MULTI_GPU:
+            _pipe_qwen_edit.to(_DEV_EDIT)
     return _pipe_qwen_edit
 
 
@@ -296,6 +323,8 @@ def _get_expander_t2i():
         print('[Expander] Loading T2I prompt expander...')
         from qwen_25_extend import QwenPromptExpander
         _expander_t2i = QwenPromptExpander(is_t2i=True)
+        if MULTI_GPU:
+            _expander_t2i.to(_DEV_EXP)
     return _expander_t2i
 
 def _get_expander_t2v():
@@ -304,6 +333,8 @@ def _get_expander_t2v():
         print('[Expander] Loading T2V prompt expander...')
         from qwen_25_extend import QwenPromptExpander
         _expander_t2v = QwenPromptExpander(is_t2v=True)
+        if MULTI_GPU:
+            _expander_t2v.to(_DEV_EXP)
     return _expander_t2v
 
 def _get_expander_i2v():
@@ -312,6 +343,8 @@ def _get_expander_i2v():
         print('[Expander] Loading I2V prompt expander...')
         from qwen_25_extend import QwenPromptExpander
         _expander_i2v = QwenPromptExpander(is_i2v=True)
+        if MULTI_GPU:
+            _expander_i2v.to(_DEV_EXP)
     return _expander_i2v
 
 def _get_expander_edit():
@@ -320,6 +353,8 @@ def _get_expander_edit():
         print('[Expander] Loading image-edit prompt expander...')
         from qwen_25_extend import QwenPromptExpander
         _expander_edit = QwenPromptExpander(is_vl=True, is_edit=True)
+        if MULTI_GPU:
+            _expander_edit.to(_DEV_EXP)
     return _expander_edit
 
 def _get_translator():
@@ -328,7 +363,23 @@ def _get_translator():
         print('[Expander] Loading translator...')
         from qwen_25_extend import QwenPromptExpander
         _translator = QwenPromptExpander(is_t2i=True)
+        if MULTI_GPU:
+            _translator.to(_DEV_EXP)
     return _translator
+
+
+def _preload_all_models():
+    """Load all 6 models to their dedicated GPUs at startup (multi-GPU mode only)."""
+    print('[Multi-GPU] Pre-loading all models...')
+    _get_pipe_1k()
+    _get_pipe_4k()
+    _get_t2v_pipe()
+    _get_i2v_pipe()
+    _get_qwen_edit_pipe()
+    # Expander uses Qwen2.5-14B; load t2i variant (covers t2i, t2v, translation)
+    from qwen_25_extend import QwenPromptExpander
+    _get_expander_t2i()
+    print('[Multi-GPU] All models loaded.')
 
 def _is_english(text):
     for char in text:
@@ -345,20 +396,24 @@ def _expand_prompt(expander, prompt, image=None):
     if not _is_english(prompt):
         from qwen_25_extend import TRANSLATE_TEXT_SYS_PROMPT
         translator = _get_translator()
-        translator.to('cuda')
+        if not MULTI_GPU:
+            translator.to('cuda')
         try:
             prompt = translator.extend(prompt, TRANSLATE_TEXT_SYS_PROMPT).prompt
         finally:
-            translator.to('cpu')
-            torch.cuda.empty_cache()
+            if not MULTI_GPU:
+                translator.to('cpu')
+                torch.cuda.empty_cache()
     # Step 2: expand the (now-English) prompt
-    expander.to('cuda')
+    if not MULTI_GPU:
+        expander.to('cuda')
     try:
         result = expander(prompt, tar_lang='en', image=image)
         return result.prompt
     finally:
-        expander.to('cpu')
-        torch.cuda.empty_cache()
+        if not MULTI_GPU:
+            expander.to('cpu')
+            torch.cuda.empty_cache()
 
 
 VIDEO_RESOLUTIONS_T2V = {
@@ -482,8 +537,10 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             result['extended_prompt'] = prompt
             _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_pipe_1k_anyflow() if use_anyflow == 'AnyFlow' else _get_pipe_1k()
-        pipe.to('cuda')
-        torch.cuda.synchronize()
+        dev = _DEV_1K
+        if not MULTI_GPU:
+            pipe.to(dev)
+        torch.cuda.synchronize(dev)
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
@@ -491,24 +548,25 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 height=h, width=w,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
-                generator=torch.Generator('cuda').manual_seed(int(seed)),
+                generator=torch.Generator(dev).manual_seed(int(seed)),
             )
             kwargs['timing_log'] = tlog
             kwargs['timing_event'] = ev_q
             if use_anyflow != 'AnyFlow':
                 kwargs['use_flux_2'] = True
             out = pipe(prompt.strip(), **kwargs).images[0]
-            torch.cuda.synchronize()
+            torch.cuda.synchronize(dev)
             _t_gen = time.perf_counter()
         path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
         result['path'] = str(path)
         _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_gen:.3f}s  (total {_t_save - _t0:.3f}s)')
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        if not MULTI_GPU:
+            pipe.to('cpu')
+            torch.cuda.empty_cache()
+            _t_offload = time.perf_counter()
+            _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -530,8 +588,10 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             pipe_4k = _get_pipe_4k_anyflow()
         else:
             pipe_4k = _get_pipe_4k()
-        pipe_4k.to('cuda')
-        torch.cuda.synchronize()
+        dev = _DEV_4K
+        if not MULTI_GPU:
+            pipe_4k.to(dev)
+        torch.cuda.synchronize(dev)
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
@@ -539,7 +599,7 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 _timing = {}
                 def _step_cb(pipeline, i, t, cb_kwargs):
                     if i == 0:
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(dev)
                         _timing['cond_end'] = time.perf_counter()
                     return cb_kwargs
                 latents = pipe_4k(
@@ -547,12 +607,12 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                     height=h, width=w,
                     num_inference_steps=num_steps,
                     guidance_scale=guidance,
-                    generator=torch.Generator('cuda').manual_seed(int(seed)),
+                    generator=torch.Generator(dev).manual_seed(int(seed)),
                     output_type='latent',
                     callback_on_step_end=_step_cb,
                     callback_on_step_end_tensor_inputs=['latents'],
                 ).images
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _t_denoise_end = time.perf_counter()
                 _t_cond_end = _timing.get('cond_end', _t_load)
                 _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
@@ -561,7 +621,7 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                 shift_factor = getattr(pipe_4k.vae.config, 'shift_factor', 0.0)
                 decoded = pipe_4k.vae.decode((latents / scaling_factor) + shift_factor, return_dict=False)[0]
                 out = pipe_4k.image_processor.postprocess(decoded, output_type='pil')[0]
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _t_vae = time.perf_counter()
                 _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
             else:
@@ -570,22 +630,23 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
                     height=h, width=w,
                     num_inference_steps=num_steps,
                     guidance_scale=guidance,
-                    generator=torch.Generator('cuda').manual_seed(int(seed)),
+                    generator=torch.Generator(dev).manual_seed(int(seed)),
                     use_flux_2=False,
                     timing_log=tlog,
                     timing_event=ev_q,
                 ).images[0]
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _t_vae = time.perf_counter()
         path = output_dir / f'4k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
         result['path'] = str(path)
         _tlog(tlog, ev_q, f'[Timing] Storing            : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
-        pipe_4k.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        if not MULTI_GPU:
+            pipe_4k.to('cpu')
+            torch.cuda.empty_cache()
+            _t_offload = time.perf_counter()
+            _tlog(tlog, ev_q, f'[Timing] GPU unload (to CPU): {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -603,8 +664,10 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
             result['extended_prompt'] = prompt
             _tlog(tlog, ev_q, '[Info]   Prompt extended.')
         pipe = _get_t2v_pipe()
-        pipe.to('cuda')
-        torch.cuda.synchronize()
+        dev = _DEV_T2V
+        if not MULTI_GPU:
+            pipe.to(dev)
+        torch.cuda.synchronize(dev)
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
@@ -612,7 +675,7 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
         _timing = {}
         def _step_cb(pipeline, i, t, cb_kwargs):
             if i == 0:
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _timing['cond_end'] = time.perf_counter()
             return cb_kwargs
 
@@ -624,12 +687,12 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
                 num_frames=num_frames,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
-                generator=torch.Generator('cuda').manual_seed(int(seed)),
+                generator=torch.Generator(dev).manual_seed(int(seed)),
                 output_type='latent',
                 callback_on_step_end=_step_cb,
                 callback_on_step_end_tensor_inputs=['latents'],
             )
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_denoise_end = time.perf_counter()
         _t_cond_end = _timing.get('cond_end', _t_load)
         _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
@@ -639,7 +702,7 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
             latents = out.frames.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
             video_tensor = pipe.vae.decode(latents, return_dict=False)[0]
             output = pipe.video_processor.postprocess_video(video_tensor, output_type='np')
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
@@ -648,10 +711,11 @@ def generate_t2v(prompt: str, num_frames: int, num_steps: int, guidance: float, 
         _t_save = time.perf_counter()
         result['path'] = str(path)
         _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        if not MULTI_GPU:
+            pipe.to('cpu')
+            torch.cuda.empty_cache()
+            _t_offload = time.perf_counter()
+            _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -681,8 +745,10 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
         w = round(math.sqrt(720 * 1280 / aspect)) // mod * mod
         img = img.resize((w, h))
 
-        pipe.to('cuda')
-        torch.cuda.synchronize()
+        dev = _DEV_I2V
+        if not MULTI_GPU:
+            pipe.to(dev)
+        torch.cuda.synchronize(dev)
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         _tlog(tlog, ev_q, f'[Info]   Generating {h}×{w}, {num_frames} frames ({num_steps} steps)...')
@@ -690,7 +756,7 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
         _timing = {}
         def _step_cb(pipeline, i, t, cb_kwargs):
             if i == 0:
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _timing['cond_end'] = time.perf_counter()
             return cb_kwargs
 
@@ -703,12 +769,12 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
                 num_frames=num_frames,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
-                generator=torch.Generator('cuda').manual_seed(int(seed)),
+                generator=torch.Generator(dev).manual_seed(int(seed)),
                 output_type='latent',
                 callback_on_step_end=_step_cb,
                 callback_on_step_end_tensor_inputs=['latents'],
             )
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_denoise_end = time.perf_counter()
         _t_cond_end = _timing.get('cond_end', _t_load)
         _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
@@ -718,7 +784,7 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
             latents = out.frames.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
             video_tensor = pipe.vae.decode(latents, return_dict=False)[0]
             output = pipe.video_processor.postprocess_video(video_tensor, output_type='np')
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
@@ -727,10 +793,11 @@ def generate_i2v(image, prompt: str, num_frames: int, num_steps: int, guidance: 
         _t_save = time.perf_counter()
         result['path'] = str(path)
         _tlog(tlog, ev_q, f'[Timing] Save video          : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        if not MULTI_GPU:
+            pipe.to('cpu')
+            torch.cuda.empty_cache()
+            _t_offload = time.perf_counter()
+            _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
@@ -760,15 +827,17 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
         _w = _cw // _mul * _mul
         _h = _ch // _mul * _mul
 
-        pipe.to('cuda')
-        torch.cuda.synchronize()
+        dev = _DEV_EDIT
+        if not MULTI_GPU:
+            pipe.to(dev)
+        torch.cuda.synchronize(dev)
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load            : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
 
         _timing = {}
         def _step_cb(pipeline, i, t, cb_kwargs):
             if i == 0:
-                torch.cuda.synchronize()
+                torch.cuda.synchronize(dev)
                 _timing['cond_end'] = time.perf_counter()
             return cb_kwargs
 
@@ -780,12 +849,12 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
                 true_cfg_scale=cfg_scale,
                 num_inference_steps=num_steps,
                 height=_h, width=_w,
-                generator=torch.Generator('cuda').manual_seed(int(seed)),
+                generator=torch.Generator(dev).manual_seed(int(seed)),
                 output_type='latent',
                 callback_on_step_end=_step_cb,
                 callback_on_step_end_tensor_inputs=['latents'],
             )
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_denoise_end = time.perf_counter()
         _t_cond_end = _timing.get('cond_end', _t_load)
         _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
@@ -796,7 +865,7 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
             latents = latents.to(pipe.vae.dtype) / pipe.vae.config.scaling_factor
             decoded = pipe.vae.decode(latents, return_dict=False)[0]
             out_img = pipe.image_processor.postprocess(decoded, output_type='pil')[0]
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(dev)
         _t_vae = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
 
@@ -805,13 +874,17 @@ def generate_qwen_edit(image, prompt: str, num_steps: int, cfg_scale: float, see
         _t_save = time.perf_counter()
         result['path'] = str(path)
         _tlog(tlog, ev_q, f'[Timing] Storing             : {_t_save - _t_vae:.3f}s  (total {_t_save - _t0:.3f}s)')
-        pipe.to('cpu')
-        torch.cuda.empty_cache()
-        _t_offload = time.perf_counter()
-        _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
+        if not MULTI_GPU:
+            pipe.to('cpu')
+            torch.cuda.empty_cache()
+            _t_offload = time.perf_counter()
+            _tlog(tlog, ev_q, f'[Timing] GPU unload          : {_t_offload - _t_save:.3f}s  (total {_t_offload - _t0:.3f}s)')
 
     yield from _stream_generation(_run)
 
+
+if MULTI_GPU:
+    _preload_all_models()
 
 with gr.Blocks(title='DC-Gen') as demo:
     gr.Markdown(INTRODUCTION)
