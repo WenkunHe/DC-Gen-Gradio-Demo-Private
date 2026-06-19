@@ -3,6 +3,7 @@ torch
 torchvision
 
 accelerate
+omegaconf
 diffusers>=0.35.1
 gradio
 huggingface_hub
