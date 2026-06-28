@@ -7,8 +7,6 @@ import math
 import os
 import pathlib
 import queue
-import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -23,18 +21,9 @@ repo_root = pathlib.Path(__file__).resolve().parent
 output_dir = repo_root / 'results'
 output_dir.mkdir(parents=True, exist_ok=True)
 
-# Clone AnyFlow main repo for the `far/` package used by the AnyFlow pipeline
-anyflow_src = repo_root / 'AnyFlow'
-if not anyflow_src.exists():
-    subprocess.run(
-        ['git', 'clone', '--depth', '1', 'https://github.com/NVlabs/AnyFlow.git', str(anyflow_src)],
-        check=True,
-    )
-sys.path.insert(0, str(anyflow_src))
-
-from pipeline_dcgen_flux import DCGen_FluxPipeline  # noqa: E402
-from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline  # noqa: E402
-from pipeline_dc_qwen_edit import build_qwen_edit_pipeline  # noqa: E402
+from pipeline_dcgen_flux import DCGen_FluxPipeline
+from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline
+from pipeline_dc_qwen_edit import build_qwen_edit_pipeline
 
 INTRODUCTION = """
 # DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
@@ -42,11 +31,9 @@ INTRODUCTION = """
 DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
 """
 
-HUB_REPO          = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
-HUB_REPO_1K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
-HUB_REPO_1K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K-Anyflow'
-HUB_REPO_4K        = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
-HUB_REPO_4K_ANYFLOW = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K-Anyflow'
+HUB_REPO  = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
+HUB_REPO_1K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
+HUB_REPO_4K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 _parser = argparse.ArgumentParser(add_help=True)
@@ -134,135 +121,11 @@ def load_pipeline_standard(subdir: str) -> DCGen_FluxPipeline:
     return pipe
 
 
-def load_pipeline_anyflow(subdir: str):
-    local_dir = _download_subdir(subdir)
-    # Patch the cloned AnyFlow with the correct DC-Gen custom versions bundled in
-    # this repo under custom_code/.  Do NOT rely on the checkpoint's custom_code/
-    # subdirectory — snapshot_download with allow_patterns='{subdir}/*' only
-    # matches one directory level deep and may not download nested subdirs.
-    import shutil
-    custom_code_dir = repo_root / 'custom_code'
-    # Delete __pycache__ dirs first so Python recompiles from the freshly-copied .py
-    # files rather than using stale bytecode that predates our edits.
-    for _pycache in (
-        anyflow_src / 'far' / 'models' / '__pycache__',
-        anyflow_src / 'far' / 'schedulers' / '__pycache__',
-        anyflow_src / 'far' / 'pipelines' / '__pycache__',
-    ):
-        if _pycache.exists():
-            shutil.rmtree(str(_pycache))
-    shutil.copy(custom_code_dir / 'transformer_dcgen_flux_model.py',
-                anyflow_src / 'far' / 'models' / 'transformer_dcgen_flux_model.py')
-    shutil.copy(custom_code_dir / 'scheduling_flowmap_euler_discrete.py',
-                anyflow_src / 'far' / 'schedulers' / 'scheduling_flowmap_euler_discrete.py')
-    shutil.copy(custom_code_dir / 'pipeline_dcgen_flux_anyflow.py',
-                anyflow_src / 'far' / 'pipelines' / 'pipeline_dcgen_flux_anyflow.py')
-
-    # Invalidate module cache so the freshly-copied files are picked up
-    for mod in list(sys.modules.keys()):
-        if mod.startswith('far.'):
-            del sys.modules[mod]
-
-    from far.pipelines.pipeline_dcgen_flux_anyflow import DCGenFluxAnyFlowPipeline  # noqa: E402
-    from far.models.transformer_dcgen_flux_model import DCGenFluxFlowMapModel  # noqa: E402
-    from far.schedulers.scheduling_flowmap_euler_discrete import FlowMapDiscreteScheduler  # noqa: E402
-    from diffusers import AutoencoderDC
-    from transformers import CLIPTextModel, PreTrainedTokenizerFast, T5EncoderModel
-
-    dtype = torch.bfloat16
-
-    # Load each component individually to avoid diffusers' custom-library issubclass check
-    vae           = AutoencoderDC.from_pretrained(local_dir / 'vae', torch_dtype=dtype)
-    # Load directly from tokenizer.json to avoid tokenizer_config.json version mismatches
-    # (extra_special_tokens saved as list instead of dict in older transformers).
-    # Set pad/eos/bos tokens explicitly since tokenizer_config.json is skipped.
-    tokenizer = PreTrainedTokenizerFast(
-        tokenizer_file=str(local_dir / 'tokenizer' / 'tokenizer.json'),
-        model_max_length=77,
-        pad_token='<|endoftext|>',
-        eos_token='<|endoftext|>',
-        bos_token='<|startoftext|>',
-        unk_token='<|endoftext|>',
-    )
-    tokenizer_2 = PreTrainedTokenizerFast(
-        tokenizer_file=str(local_dir / 'tokenizer_2' / 'tokenizer.json'),
-        model_max_length=512,
-        eos_token='</s>',
-        unk_token='<unk>',
-        pad_token='<pad>',  # id=0, same as T5TokenizerFast.from_pretrained default
-    )
-    text_encoder  = CLIPTextModel.from_pretrained(local_dir / 'text_encoder', torch_dtype=dtype)
-    text_encoder_2 = T5EncoderModel.from_pretrained(local_dir / 'text_encoder_2', torch_dtype=dtype)
-
-    # Build model with correct architecture first, then load sharded weights manually.
-    # from_pretrained can't be used because register_to_config drops config attrs when
-    # __init__ is overridden, and setup_flowmap_model() must run before weights load.
-    import json
-    from safetensors.torch import load_file as _load_sf
-    _t_dir = local_dir / 'transformer'
-    transformer = DCGenFluxFlowMapModel.from_config(DCGenFluxFlowMapModel.load_config(str(_t_dir)))
-    transformer.setup_flowmap_model(gate_value=0.25, deltatime_type='r')
-    _index_path = _t_dir / 'diffusion_pytorch_model.safetensors.index.json'
-    if _index_path.exists():
-        with open(_index_path) as _f:
-            _shards = sorted(set(json.load(_f)['weight_map'].values()))
-        _state_dict = {}
-        for _shard in _shards:
-            _state_dict.update(_load_sf(str(_t_dir / _shard)))
-    elif (_t_dir / 'diffusion_pytorch_model.safetensors').exists():
-        _state_dict = _load_sf(str(_t_dir / 'diffusion_pytorch_model.safetensors'))
-    else:
-        _state_dict = torch.load(str(_t_dir / 'diffusion_pytorch_model.bin'), map_location='cpu', weights_only=True)
-    _missing, _unexpected = transformer.load_state_dict(_state_dict, strict=False)
-    if _missing:
-        print(f'[transformer] {len(_missing)} missing keys')
-    transformer = transformer.to(dtype).eval()
-
-    # Instantiate scheduler directly with the correct shift (generate.py uses shift=3.0)
-    scheduler = FlowMapDiscreteScheduler(num_train_timesteps=1000, shift=3.0)
-
-    # Keys in the .pth are 'prompt_embeds'/'pooled_prompt_embeds' (not 'null_*')
-    null_embeds = torch.load(local_dir / 'flux_null_embedding.pth', map_location='cpu', weights_only=False)
-    _null_pe  = null_embeds.get('prompt_embeds')
-    if _null_pe is None:
-        _null_pe = null_embeds.get('null_prompt_embeds')
-    _null_ppe = null_embeds.get('pooled_prompt_embeds')
-    if _null_ppe is None:
-        _null_ppe = null_embeds.get('null_pooled_prompt_embeds')
-    if _null_pe is not None:
-        _null_pe  = _null_pe.to(dtype)
-    if _null_ppe is not None:
-        _null_ppe = _null_ppe.to(dtype)
-
-    pipe = DCGenFluxAnyFlowPipeline(
-        vae=vae,
-        tokenizer=tokenizer,
-        tokenizer_2=tokenizer_2,
-        text_encoder=text_encoder,
-        text_encoder_2=text_encoder_2,
-        transformer=transformer,
-        scheduler=scheduler,
-        null_prompt_embeds=_null_pe,
-        null_pooled_prompt_embeds=_null_ppe,
-    )
-    pipe.set_progress_bar_config(disable=True)
-    return pipe
-
-
 # ── All pipelines lazy-loaded on first use ────────────────────────────────────
-_pipe_1k_anyflow  = None
-_pipe_1k          = None
-_pipe_4k_anyflow  = None
-_pipe_4k          = None
+_pipe_1k = None
+_pipe_4k = None
 _pipe_t2v         = None
 _pipe_i2v         = None
-
-def _get_pipe_1k_anyflow():
-    global _pipe_1k_anyflow
-    if _pipe_1k_anyflow is None:
-        print('[Pipeline] Loading 1K-AnyFlow...')
-        _pipe_1k_anyflow = load_pipeline_anyflow(HUB_REPO_1K_ANYFLOW)
-    return _pipe_1k_anyflow
 
 def _get_pipe_1k():
     global _pipe_1k
@@ -272,13 +135,6 @@ def _get_pipe_1k():
         if MULTI_GPU:
             _pipe_1k.to(_DEV_1K)
     return _pipe_1k
-
-def _get_pipe_4k_anyflow():
-    global _pipe_4k_anyflow
-    if _pipe_4k_anyflow is None:
-        print('[Pipeline] Loading 4K-AnyFlow...')
-        _pipe_4k_anyflow = load_pipeline_anyflow(HUB_REPO_4K_ANYFLOW)
-    return _pipe_4k_anyflow
 
 def _get_pipe_4k():
     global _pipe_4k
@@ -531,10 +387,9 @@ def _tlog(tlog, ev_q, msg):
     ev_q.put('update')
 
 
-def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int, use_expander: str = 'No'):
+def generate_1k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int, use_expander: str = 'No'):
     h, w = ASPECT_RATIOS_1K[aspect_ratio]
-    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
-    print(f'\n[Generate 1K-{tag}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
+    print(f'\n[Generate 1K] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
@@ -544,7 +399,7 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             prompt = _expand_prompt(_get_expander_t2i(), prompt)
             result['extended_prompt'] = prompt
             _tlog(tlog, ev_q, '[Info]   Prompt extended.')
-        pipe = _get_pipe_1k_anyflow() if use_anyflow == 'AnyFlow' else _get_pipe_1k()
+        pipe = _get_pipe_1k()
         dev = _DEV_1K
         if not MULTI_GPU:
             pipe.to(dev)
@@ -552,20 +407,19 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
-            kwargs = dict(
+            out = pipe(
+                prompt.strip(),
                 height=h, width=w,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance,
                 generator=torch.Generator(dev).manual_seed(int(seed)),
-            )
-            kwargs['timing_log'] = tlog
-            kwargs['timing_event'] = ev_q
-            if use_anyflow != 'AnyFlow':
-                kwargs['use_flux_2'] = True
-            out = pipe(prompt.strip(), **kwargs).images[0]
+                timing_log=tlog,
+                timing_event=ev_q,
+                use_flux_2=True,
+            ).images[0]
             torch.cuda.synchronize(dev)
             _t_gen = time.perf_counter()
-        path = output_dir / f'1k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
+        path = output_dir / f'1k_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
         result['path'] = str(path)
@@ -579,10 +433,9 @@ def generate_1k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
     yield from _stream_generation(_run)
 
 
-def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int, use_expander: str = 'No'):
+def generate_4k(prompt: str, aspect_ratio: str, num_steps: int, guidance: float, seed: int, use_expander: str = 'No'):
     h, w = ASPECT_RATIOS_4K[aspect_ratio]
-    tag = 'anyflow' if use_anyflow == 'AnyFlow' else 'standard'
-    print(f'\n[Generate 4K-{tag.upper()}] {h}x{w}, {num_steps} steps, seed={int(seed)}')
+    print(f'\n[Generate 4K] {h}x{w}, {num_steps} steps, seed={int(seed)}')
     _t0 = time.perf_counter()
 
     def _run(tlog, ev_q, result):
@@ -592,10 +445,7 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
             prompt = _expand_prompt(_get_expander_t2i(), prompt)
             result['extended_prompt'] = prompt
             _tlog(tlog, ev_q, '[Info]   Prompt extended.')
-        if use_anyflow == 'AnyFlow':
-            pipe_4k = _get_pipe_4k_anyflow()
-        else:
-            pipe_4k = _get_pipe_4k()
+        pipe_4k = _get_pipe_4k()
         dev = _DEV_4K
         if not MULTI_GPU:
             pipe_4k.to(dev)
@@ -603,49 +453,19 @@ def generate_4k(prompt: str, use_anyflow: str, aspect_ratio: str, num_steps: int
         _t_load = time.perf_counter()
         _tlog(tlog, ev_q, f'[Timing] GPU load (to CUDA) : {_t_load - _t0:.3f}s  (total {_t_load - _t0:.3f}s)')
         with torch.no_grad():
-            if use_anyflow == 'AnyFlow':
-                _timing = {}
-                def _step_cb(pipeline, i, t, cb_kwargs):
-                    if i == 0:
-                        torch.cuda.synchronize(dev)
-                        _timing['cond_end'] = time.perf_counter()
-                    return cb_kwargs
-                latents = pipe_4k(
-                    prompt.strip(),
-                    height=h, width=w,
-                    num_inference_steps=num_steps,
-                    guidance_scale=guidance,
-                    generator=torch.Generator(dev).manual_seed(int(seed)),
-                    output_type='latent',
-                    callback_on_step_end=_step_cb,
-                    callback_on_step_end_tensor_inputs=['latents'],
-                ).images
-                torch.cuda.synchronize(dev)
-                _t_denoise_end = time.perf_counter()
-                _t_cond_end = _timing.get('cond_end', _t_load)
-                _tlog(tlog, ev_q, f'[Timing] Condition encoding : {_t_cond_end - _t_load:.3f}s  (total {_t_cond_end - _t0:.3f}s)')
-                _tlog(tlog, ev_q, f'[Timing] Denoising          : {_t_denoise_end - _t_cond_end:.3f}s  (total {_t_denoise_end - _t0:.3f}s)')
-                scaling_factor = getattr(pipe_4k.vae.config, 'scaling_factor', 1.0)
-                shift_factor = getattr(pipe_4k.vae.config, 'shift_factor', 0.0)
-                decoded = pipe_4k.vae.decode((latents / scaling_factor) + shift_factor, return_dict=False)[0]
-                out = pipe_4k.image_processor.postprocess(decoded, output_type='pil')[0]
-                torch.cuda.synchronize(dev)
-                _t_vae = time.perf_counter()
-                _tlog(tlog, ev_q, f'[Timing] VAE decoding       : {_t_vae - _t_denoise_end:.3f}s  (total {_t_vae - _t0:.3f}s)')
-            else:
-                out = pipe_4k(
-                    prompt.strip(),
-                    height=h, width=w,
-                    num_inference_steps=num_steps,
-                    guidance_scale=guidance,
-                    generator=torch.Generator(dev).manual_seed(int(seed)),
-                    use_flux_2=False,
-                    timing_log=tlog,
-                    timing_event=ev_q,
-                ).images[0]
-                torch.cuda.synchronize(dev)
-                _t_vae = time.perf_counter()
-        path = output_dir / f'4k_{tag}_{uuid.uuid4().hex[:8]}.jpg'
+            out = pipe_4k(
+                prompt.strip(),
+                height=h, width=w,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance,
+                generator=torch.Generator(dev).manual_seed(int(seed)),
+                use_flux_2=False,
+                timing_log=tlog,
+                timing_event=ev_q,
+            ).images[0]
+            torch.cuda.synchronize(dev)
+            _t_vae = time.perf_counter()
+        path = output_dir / f'4k_{uuid.uuid4().hex[:8]}.jpg'
         out.save(str(path))
         _t_save = time.perf_counter()
         result['path'] = str(path)
@@ -903,12 +723,6 @@ with gr.Blocks(title='DC-Gen') as demo:
             with gr.Row():
                 with gr.Column():
                     prompt_1k = gr.Textbox(label='Prompt', lines=4)
-                    model_toggle = gr.Radio(
-                        choices=['AnyFlow', 'Standard'],
-                        value='Standard',
-                        label='Model',
-                        info='AnyFlow: on-policy distilled model (faster, any-step); Standard: base 1K model',
-                    )
                     aspect_1k = gr.Dropdown(
                         list(ASPECT_RATIOS_1K.keys()),
                         value='1:1  (1024×1024)',
@@ -919,10 +733,6 @@ with gr.Blocks(title='DC-Gen') as demo:
                         guidance_1k = gr.Slider(1.0, 10.0, value=3.5, step=0.1, label='Guidance Scale')
                     seed_1k = gr.Number(0, label='Seed', precision=0)
                     expand_1k = gr.Radio(['No', 'Yes'], value='No', label='Extend Prompt')
-                    model_toggle.change(
-                        lambda m: gr.update(value=4 if m == 'AnyFlow' else 20),
-                        inputs=[model_toggle], outputs=[steps_1k],
-                    )
                 with gr.Column():
                     out_1k = gr.Image(label='Output', type='filepath')
                     timing_1k = gr.Textbox(label='Timing', lines=6, interactive=False)
@@ -945,7 +755,7 @@ with gr.Blocks(title='DC-Gen') as demo:
 
             btn_1k.click(
                 generate_1k,
-                inputs=[prompt_1k, model_toggle, aspect_1k, steps_1k, guidance_1k, seed_1k, expand_1k],
+                inputs=[prompt_1k, aspect_1k, steps_1k, guidance_1k, seed_1k, expand_1k],
                 outputs=[out_1k, timing_1k, extended_prompt_1k],
             )
 
@@ -954,12 +764,6 @@ with gr.Blocks(title='DC-Gen') as demo:
             with gr.Row():
                 with gr.Column():
                     prompt_4k = gr.Textbox(label='Prompt', lines=4)
-                    model_toggle_4k = gr.Radio(
-                        choices=['AnyFlow', 'Standard'],
-                        value='Standard',
-                        label='Model',
-                        info='AnyFlow: on-policy distilled model (faster, any-step); Standard: base 4K model',
-                    )
                     aspect_ratio_4k = gr.Dropdown(
                         list(ASPECT_RATIOS_4K.keys()),
                         value='1:1  (4096×4096)',
@@ -970,10 +774,6 @@ with gr.Blocks(title='DC-Gen') as demo:
                         guidance_4k = gr.Slider(1.0, 10.0, value=3.5, step=0.1, label='Guidance Scale')
                     seed_4k = gr.Number(0, label='Seed', precision=0)
                     expand_4k = gr.Radio(['No', 'Yes'], value='No', label='Extend Prompt')
-                    model_toggle_4k.change(
-                        lambda m: gr.update(value=4 if m == 'AnyFlow' else 20),
-                        inputs=[model_toggle_4k], outputs=[steps_4k],
-                    )
                 with gr.Column():
                     out_4k = gr.Image(label='Output', type='filepath')
                     timing_4k = gr.Textbox(label='Timing', lines=6, interactive=False)
@@ -987,7 +787,7 @@ with gr.Blocks(title='DC-Gen') as demo:
                     use_btn = gr.Button('Use', scale=0, min_width=60)
                     use_btn.click(lambda p=ex: p, outputs=[prompt_4k])
 
-            btn_4k.click(generate_4k, inputs=[prompt_4k, model_toggle_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k, expand_4k], outputs=[out_4k, timing_4k, extended_prompt_4k])
+            btn_4k.click(generate_4k, inputs=[prompt_4k, aspect_ratio_4k, steps_4k, guidance_4k, seed_4k, expand_4k], outputs=[out_4k, timing_4k, extended_prompt_4k])
 
         with gr.Tab('DC-Gen-Wan2.1-T2V-14B-720P'):
             gr.Markdown('### DC-Gen-Wan2.1-14B - Text-to-Video (DC-AE-V-f32t4c32)')
