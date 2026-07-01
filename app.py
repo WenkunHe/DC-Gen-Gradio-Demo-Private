@@ -31,7 +31,7 @@ INTRODUCTION = """
 DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
 """
 
-HUB_REPO  = 'nvidia/DC-Gen-FLUX.1-Krea-Dev'
+HUB_REPO  = 'dc-ai/dc-gen-checkpoints'
 HUB_REPO_1K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res1K'
 HUB_REPO_4K = 'DC-Gen-FLUX.1-Krea-Dev-v1.0-Res4K'
 

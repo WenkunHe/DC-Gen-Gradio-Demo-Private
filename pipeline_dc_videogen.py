@@ -12,11 +12,12 @@ import torch.nn as nn
 from huggingface_hub import snapshot_download
 
 # ── HuggingFace repo ──────────────────────────────────────────────────────────
-HUB_REPO_VIDEOGEN = 'nvidia/DC-VideoGen-Wan2.1-14B'
+HUB_REPO_VIDEOGEN = 'dc-ai/dc-gen-checkpoints'
+_HUB_SUBDIR       = 'DC-Gen-Wan2.1-14B-720P'
 
-# ── local cache (mirrors pretrained_models/ pattern used for image pipelines) ─
+# ── local cache ───────────────────────────────────────────────────────────────
 _repo_root = pathlib.Path(__file__).resolve().parent
-CKPT = _repo_root / 'pretrained_models' / 'DC-Gen-Wan2.1-14B-720P'
+CKPT = _repo_root / 'pretrained_models' / _HUB_SUBDIR
 
 _REQUIRED_CKPT_PATHS = [
     'dc-ae-v-f32t4c32-1.0-bf16.pt',
@@ -30,15 +31,26 @@ def _ensure_videogen_ckpt() -> pathlib.Path:
     if not all((CKPT / f).exists() for f in _REQUIRED_CKPT_PATHS):
         missing = [f for f in _REQUIRED_CKPT_PATHS if not (CKPT / f).exists()]
         print(f'[VideoGen] Missing checkpoints: {missing}')
-        print(f'[VideoGen] Downloading from {HUB_REPO_VIDEOGEN} ...')
+        print(f'[VideoGen] Downloading from {HUB_REPO_VIDEOGEN}/{_HUB_SUBDIR}/ ...')
         CKPT.mkdir(parents=True, exist_ok=True)
         token = os.environ.get('HF_TOKEN')
         snapshot_download(
             repo_id=HUB_REPO_VIDEOGEN,
             repo_type='model',
             local_dir=str(CKPT),
+            allow_patterns=f'{_HUB_SUBDIR}/**',
             token=token,
         )
+        # Strip the extra nesting snapshot_download adds
+        nested = CKPT / _HUB_SUBDIR
+        if nested.exists():
+            import shutil
+            for item in nested.iterdir():
+                dst = CKPT / item.name
+                if dst.exists():
+                    shutil.rmtree(str(dst)) if dst.is_dir() else dst.unlink()
+                shutil.move(str(item), str(dst))
+            nested.rmdir()
     return CKPT
 
 from diffusers import UniPCMultistepScheduler, WanTransformer3DModel
