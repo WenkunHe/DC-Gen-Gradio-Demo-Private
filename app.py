@@ -25,10 +25,21 @@ from pipeline_dcgen_flux import DCGen_FluxPipeline
 from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline
 from pipeline_dc_qwen_edit import build_qwen_edit_pipeline
 
-INTRODUCTION = """
+_ASSET_BASE = 'https://github.com/dc-ai-projects/DC-Gen/raw/main/assets/dc-gen-figures'
+
+INTRODUCTION = f"""
 # DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
 
 DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, Wan2.1, Qwen-Image-Edit) to deeply compressed latent spaces through efficient post-training. It enables native 4K image synthesis, and achieves up to 54x acceleration.
+
+<p align="center"><img src="{_ASSET_BASE}/teaser_page1.png" style="width:100%;max-width:1200px"></p>
+"""
+
+_DEMO_VIDEO_HTML = f"""
+<p align="center">
+  <video src="{_ASSET_BASE}/demo.mp4" autoplay loop muted playsinline controls
+         style="width:100%;max-width:1200px"></video>
+</p>
 """
 
 HUB_REPO  = 'dc-ai/dc-gen-checkpoints'
@@ -716,6 +727,7 @@ if MULTI_GPU:
 
 with gr.Blocks(title='DC-Gen') as demo:
     gr.Markdown(INTRODUCTION)
+    gr.HTML(_DEMO_VIDEO_HTML)
 
     with gr.Tabs():
         with gr.Tab('DC-Gen-FLUX-1K'):
