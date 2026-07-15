@@ -26,6 +26,7 @@ from pipeline_dc_videogen import build_t2v_pipeline, build_i2v_pipeline
 from pipeline_dc_qwen_edit import build_qwen_edit_pipeline
 
 _ASSET_BASE = 'https://github.com/dc-ai-projects/DC-Gen/raw/main/assets/dc-gen-figures'
+_DEMO_VIDEO_URL = 'https://huggingface.co/dc-ai/Visualization2/resolve/main/Updated.mp4'
 
 INTRODUCTION = f"""
 # DC-Gen: Post-Training Diffusion Acceleration with Deeply Compressed Latent Space
@@ -37,7 +38,7 @@ DC-Gen adapts high-resolution visual generation and editing models (e.g., FLUX, 
 
 _DEMO_VIDEO_HTML = f"""
 <p align="center">
-  <video src="{_ASSET_BASE}/demo.mp4" autoplay loop muted playsinline controls
+  <video src="{_DEMO_VIDEO_URL}" autoplay loop muted playsinline controls
          style="width:100%;max-width:1200px"></video>
 </p>
 """
