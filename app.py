@@ -180,7 +180,7 @@ _pipe_qwen_edit = None
 def _get_qwen_edit_pipe():
     global _pipe_qwen_edit
     if _pipe_qwen_edit is None:
-        print('[Pipeline] Loading DC-Qwen-Image-Edit...')
+        print('[Pipeline] Loading DC-Gen-Qwen-Image-Edit...')
         _pipe_qwen_edit = build_qwen_edit_pipeline()
         if MULTI_GPU:
             _pipe_qwen_edit.to(_DEV_EDIT)

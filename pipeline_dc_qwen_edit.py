@@ -1,5 +1,5 @@
 """
-DC-Qwen-Image-Edit pipeline builder.
+DC-Gen-Qwen-Image-Edit pipeline builder.
 Checkpoints auto-downloaded from HuggingFace on first use.
 """
 
